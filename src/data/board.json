@@ -1,0 +1,588 @@
+[
+  {
+    "name": "Go",
+    "type": "go",
+    "corner": true
+  },
+  {
+    "name": {
+      "us": "Mediterranean Avenue",
+      "uk": "Old Kent Road"
+    },
+    "type": "property",
+    "cost": 60,
+    "set": 0,
+    "rent": [
+      2,
+      10,
+      30,
+      90,
+      160,
+      250
+    ],
+    "buildingCost": 50,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#955438"
+  },
+  {
+    "name": "Community Chest",
+    "type": "community-chest"
+  },
+  {
+    "name": {
+      "us": "Baltic Avenue",
+      "uk": "Whitechapel Road"
+    },
+    "type": "property",
+    "cost": 60,
+    "set": 0,
+    "rent": [
+      4,
+      20,
+      60,
+      180,
+      320,
+      450
+    ],
+    "buildingCost": 50,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#955438"
+  },
+  {
+    "name": "Income Tax",
+    "type": "tax",
+    "cost": 200
+  },
+  {
+    "name": {
+      "us": "Reading Railroad",
+      "uk": "Kings Cross Station"
+    },
+    "type": "railroad",
+    "cost": 200,
+    "owner": -1
+  },
+  {
+    "name": {
+      "us": "Oriental Avenue",
+      "uk": "The Angel Islington"
+    },
+    "type": "property",
+    "cost": 100,
+    "set": 1,
+    "rent": [
+      6,
+      30,
+      90,
+      270,
+      400,
+      550
+    ],
+    "buildingCost": 50,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#aae0fa"
+  },
+  {
+    "name": "Chance",
+    "type": "chance"
+  },
+  {
+    "name": {
+      "us": "Vermont Avenue",
+      "uk": "Euston Road"
+    },
+    "type": "property",
+    "cost": 100,
+    "set": 1,
+    "rent": [
+      6,
+      30,
+      90,
+      270,
+      400,
+      550
+    ],
+    "buildingCost": 50,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#aae0fa"
+  },
+  {
+    "name": {
+      "us": "Connecticut Avenue",
+      "uk": "Pentonville Road"
+    },
+    "type": "property",
+    "cost": 120,
+    "set": 1,
+    "rent": [
+      8,
+      40,
+      100,
+      300,
+      450,
+      600
+    ],
+    "buildingCost": 50,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#aae0fa"
+  },
+  {
+    "name": "Jail",
+    "type": "jail",
+    "corner": true
+  },
+  {
+    "name": {
+      "us": "St. Charles Place",
+      "uk": "Pall Mall"
+    },
+    "type": "property",
+    "cost": 140,
+    "set": 2,
+    "rent": [
+      10,
+      50,
+      150,
+      450,
+      625,
+      750
+    ],
+    "buildingCost": 100,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#d93a96"
+  },
+  {
+    "name": "Electric Company",
+    "type": "utility",
+    "cost": 150,
+    "owner": -1
+  },
+  {
+    "name": {
+      "us": "States Avenue",
+      "uk": "Whitehall"
+    },
+    "type": "property",
+    "cost": 140,
+    "set": 2,
+    "rent": [
+      10,
+      50,
+      150,
+      450,
+      625,
+      750
+    ],
+    "buildingCost": 100,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#d93a96"
+  },
+  {
+    "name": {
+      "us": "Virginia Avenue",
+      "uk": "Northumberland Avenue"
+    },
+    "type": "property",
+    "cost": 160,
+    "set": 2,
+    "rent": [
+      12,
+      60,
+      180,
+      500,
+      700,
+      900
+    ],
+    "buildingCost": 100,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#d93a96"
+  },
+  {
+    "name": {
+      "us": "Pennsylvania Railroad",
+      "uk": "Marylebone Station"
+    },
+    "type": "railroad",
+    "cost": 200,
+    "owner": -1
+  },
+  {
+    "name": {
+      "us": "St. James Place",
+      "uk": "Bow Street"
+    },
+    "type": "property",
+    "cost": 180,
+    "set": 3,
+    "rent": [
+      14,
+      70,
+      200,
+      550,
+      750,
+      950
+    ],
+    "buildingCost": 100,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#f7941d"
+  },
+  {
+    "name": "Community Chest",
+    "type": "community-chest"
+  },
+  {
+    "name": {
+      "us": "Tennessee Avenue",
+      "uk": "Marlborough Street"
+    },
+    "type": "property",
+    "cost": 180,
+    "set": 3,
+    "rent": [
+      14,
+      70,
+      200,
+      550,
+      750,
+      950
+    ],
+    "buildingCost": 100,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#f7941d"
+  },
+  {
+    "name": {
+      "us": "New York Avenue",
+      "uk": "Vine Street"
+    },
+    "type": "property",
+    "cost": 200,
+    "set": 3,
+    "rent": [
+      16,
+      80,
+      220,
+      600,
+      800,
+      1000
+    ],
+    "buildingCost": 100,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#f7941d"
+  },
+  {
+    "name": "Free Parking",
+    "type": "free-parking",
+    "corner": true
+  },
+  {
+    "name": {
+      "us": "Kentucky Avenue",
+      "uk": "Strand"
+    },
+    "type": "property",
+    "cost": 220,
+    "set": 4,
+    "rent": [
+      18,
+      90,
+      250,
+      700,
+      875,
+      1050
+    ],
+    "buildingCost": 150,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#ed1b24"
+  },
+  {
+    "name": "Chance",
+    "type": "chance"
+  },
+  {
+    "name": {
+      "us": "Indiana Avenue",
+      "uk": "Fleet Street"
+    },
+    "type": "property",
+    "cost": 220,
+    "set": 4,
+    "rent": [
+      18,
+      90,
+      250,
+      700,
+      875,
+      1050
+    ],
+    "buildingCost": 150,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#ed1b24"
+  },
+  {
+    "name": {
+      "us": "Illinois Avenue",
+      "uk": "Trafalgar Square"
+    },
+    "type": "property",
+    "cost": 240,
+    "set": 4,
+    "rent": [
+      20,
+      100,
+      300,
+      750,
+      925,
+      1100
+    ],
+    "buildingCost": 150,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#ed1b24"
+  },
+  {
+    "name": {
+      "us": "B. & O. Railroad",
+      "uk": "Fenchurch St. Station"
+    },
+    "type": "railroad",
+    "cost": 200,
+    "owner": -1
+  },
+  {
+    "name": {
+      "us": "Atlantic Avenue",
+      "uk": "Leicester Square"
+    },
+    "type": "property",
+    "cost": 260,
+    "set": 5,
+    "rent": [
+      22,
+      110,
+      330,
+      800,
+      975,
+      1150
+    ],
+    "buildingCost": 150,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#fef200"
+  },
+  {
+    "name": {
+      "us": "Ventnor Avenue",
+      "uk": "Coventry Street"
+    },
+    "type": "property",
+    "cost": 260,
+    "set": 5,
+    "rent": [
+      22,
+      110,
+      330,
+      800,
+      975,
+      1150
+    ],
+    "buildingCost": 150,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#fef200"
+  },
+  {
+    "name": "Water Works",
+    "type": "utility",
+    "cost": 150,
+    "owner": -1
+  },
+  {
+    "name": {
+      "us": "Marvin Gardens",
+      "uk": "Piccadilly"
+    },
+    "type": "property",
+    "cost": 280,
+    "set": 5,
+    "rent": [
+      24,
+      120,
+      360,
+      850,
+      1025,
+      1200
+    ],
+    "buildingCost": 150,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#fef200"
+  },
+  {
+    "name": "Go To Jail",
+    "type": "go-to-jail",
+    "corner": true
+  },
+  {
+    "name": {
+      "us": "Pacific Avenue",
+      "uk": "Regent Street"
+    },
+    "type": "property",
+    "cost": 300,
+    "set": 6,
+    "rent": [
+      26,
+      130,
+      390,
+      900,
+      1100,
+      1275
+    ],
+    "buildingCost": 200,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#1fb25a"
+  },
+  {
+    "name": {
+      "us": "North Carolina Avenue",
+      "uk": "Oxford Street"
+    },
+    "type": "property",
+    "cost": 300,
+    "set": 6,
+    "rent": [
+      26,
+      130,
+      390,
+      900,
+      1100,
+      1275
+    ],
+    "buildingCost": 200,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#1fb25a"
+  },
+  {
+    "name": "Community Chest",
+    "type": "community-chest"
+  },
+  {
+    "name": {
+      "us": "Pennsylvania Avenue",
+      "uk": "Bond Street"
+    },
+    "type": "property",
+    "cost": 320,
+    "set": 6,
+    "rent": [
+      28,
+      150,
+      450,
+      1000,
+      1200,
+      1400
+    ],
+    "buildingCost": 200,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#1fb25a"
+  },
+  {
+    "name": {
+      "us": "Short Line",
+      "uk": "Liverpool St. Station"
+    },
+    "type": "railroad",
+    "cost": 200,
+    "owner": -1
+  },
+  {
+    "name": "Chance",
+    "type": "chance"
+  },
+  {
+    "name": {
+      "us": "Park Place",
+      "uk": "Park Lane"
+    },
+    "type": "property",
+    "cost": 350,
+    "set": 7,
+    "rent": [
+      35,
+      175,
+      500,
+      1100,
+      1300,
+      1500
+    ],
+    "buildingCost": 200,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#0072bb"
+  },
+  {
+    "name": "Luxury Tax",
+    "type": "tax",
+    "cost": 100
+  },
+  {
+    "name": {
+      "us": "Boardwalk",
+      "uk": "Mayfair"
+    },
+    "type": "property",
+    "cost": 400,
+    "set": 7,
+    "rent": [
+      50,
+      200,
+      600,
+      1400,
+      1700,
+      2000
+    ],
+    "buildingCost": 200,
+    "buildings": 0,
+    "mortgaged": false,
+    "owner": -1,
+    "color": "#0072bb"
+  }
+]
