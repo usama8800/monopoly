@@ -5,14 +5,15 @@ import { Monopoly } from './monopoly';
 import { Player } from './player';
 import { padEnd, padStart } from './utils';
 
+const seed = 5;
 const auto = {
   rounds: 0,
   turns: 0,
 };
 async function main() {
-  const game = new Monopoly({ seed: 1 });
-  game.addPlayer(new Player({ seed: 2 }));
-  game.addPlayer(new Player({ seed: 2 }));
+  const game = new Monopoly({ seed });
+  game.addPlayer(new Player({ seed }));
+  game.addPlayer(new Player({ seed }));
 
   while (true) {
     let yes: boolean;
@@ -60,10 +61,11 @@ function gameInfo(game: Monopoly) {
   for (let i = 0; i < game.players.length; i++) {
     const player = game.players[i];
     let lineOfPlayer = 0;
-    lines[lineRow + lineOfPlayer] = (lines[lineRow + lineOfPlayer++] ?? '') + colGap + padEnd(chalk.bold(chalk[i < 6 ? playerColors[i] : 6](`----Player ${player.index + 1}----`)), colLength);
+    const thisPlayerTurn = i === (game.turnOfPlayer - 1 + game.players.length) % game.players.length;
+    lines[lineRow + lineOfPlayer] = (lines[lineRow + lineOfPlayer++] ?? '') + colGap + padEnd(chalk[thisPlayerTurn ? 'bgWhite' : 'bold'](chalk[i < 6 ? playerColors[i] : 6](`----Player ${player.index + 1}----`)), colLength);
     lines[lineRow + lineOfPlayer] = (lines[lineRow + lineOfPlayer++] ?? '') + colGap + padEnd(`Money   : ${pad(player.money.toString(), 5)}`, colLength);
     lines[lineRow + lineOfPlayer] = (lines[lineRow + lineOfPlayer++] ?? '') + colGap + padEnd(`Position: ${player.positionString()}`, colLength);
-    lines[lineRow + lineOfPlayer] = (lines[lineRow + lineOfPlayer++] ?? '') + colGap + padEnd(`On      : ${game.localizeItem(game.board[player.position])}`, colLength);
+    lines[lineRow + lineOfPlayer] = (lines[lineRow + lineOfPlayer++] ?? '') + colGap + padEnd(`On      : ${chalk.hex(game.tileColor(game.board[player.position]))(game.localizeItem(game.board[player.position]))}`, colLength);
     lines[lineRow + lineOfPlayer] = (lines[lineRow + lineOfPlayer++] ?? '') + colGap + padEnd(`Value   : ${player.valuePlayer(player)}`, colLength);
     lines[lineRow + lineOfPlayer] = (lines[lineRow + lineOfPlayer++] ?? '') + colGap + '';
     lines[lineRow + lineOfPlayer] = (lines[lineRow + lineOfPlayer++] ?? '') + colGap + chalk.underline(padEnd('      Title Deeds', colLength));

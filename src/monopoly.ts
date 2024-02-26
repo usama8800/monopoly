@@ -31,6 +31,8 @@ export type Railroad = {
   name: Name;
   type: 'railroad';
   cost: number;
+  rent: number[];
+  mortgaged: boolean;
   owner: number;
 }
 export type Utility = {
@@ -38,6 +40,8 @@ export type Utility = {
   name: Name;
   type: 'utility';
   cost: number;
+  rent: number[];
+  mortgaged: boolean;
   owner: number;
 }
 export type CommunityChest = {
@@ -86,22 +90,29 @@ export class Monopoly {
     edition?: 'uk' | 'us';
     seed?: number;
   }) {
-    this.board = readJsonSync(join(__dirname, 'data', 'board.json')).map((x, i) => ({ index: i, ...x }));
+    this.board = readJsonSync(join(__dirname, 'data', 'board.json')).map((x: BoardItem, i: number) => {
+      x.index = i;
+      if (['railroad', 'utility', 'property'].includes(x.type)) {
+        (x as any).owner = -1;
+        (x as any).buildings = 0;
+        (x as any).mortgaged = false;
+      }
+      return x;
+    });
     if (config) {
       this.seed = config.seed;
       if (config.edition) this.edition = config.edition;
     }
     this.setChance();
-    this.chance = shuffle(this.chance, this.seed);
-    this.communityChest = shuffle(this.communityChest, this.seed);
+    this.setCommunityChest();
   }
 
   setChance() {
-    this.chance = shuffle(readJsonSync(join(__dirname, 'data', 'chance.json')));
+    this.chance = shuffle(readJsonSync(join(__dirname, 'data', 'chance.json')), this.seed);
   }
 
   setCommunityChest() {
-    this.communityChest = shuffle(readJsonSync(join(__dirname, 'data', 'community-chest.json')));
+    this.communityChest = shuffle(readJsonSync(join(__dirname, 'data', 'community-chest.json')), this.seed);
   }
 
   addPlayer(player: Player) {
@@ -112,7 +123,7 @@ export class Monopoly {
 
   localizeItem(data: { index: number, type: 'board' | 'chance' | 'community-chest' } | BoardItem | CCard): string {
     let item: BoardItem | CCard;
-    if (!Object.prototype.hasOwnProperty.call(data, 'type')) {
+    if (['board', 'chance', 'community-chest'].includes(data.type) && data['name'] === undefined) {
       const { index, type } = data as any;
       if (type === 'board') {
         item = this.board[index];
@@ -139,7 +150,7 @@ export class Monopoly {
     if (tile.type === 'railroad') return '#000000';
     if (tile.type === 'utility' && this.localizeItem(tile).toLowerCase().includes('water')) return '#00b1ee';
     if (tile.type === 'utility') return '#ffdf91';
-    return '#000000';
+    return '#ffffff';
   }
 
   tileAsOwnable(tile: BoardItem): undefined | OwnableBoardItem {
@@ -157,7 +168,8 @@ export class Monopoly {
     return (to - from + this.board.length) % this.board.length;
   }
 
-  nextPlayer() {
+  nextPlayer(): string[] {
+    const actions = this.players[this.turnOfPlayer].endTurn();
     this.doubles = 0;
     this.turnOfPlayer = this.turnOfPlayer + 1;
     if (this.turnOfPlayer >= this.players.length) {
@@ -165,6 +177,7 @@ export class Monopoly {
       this.turnOfPlayer -= this.players.length;
     }
     if (this.players[this.turnOfPlayer].lost) this.nextPlayer();
+    return actions;
   }
 
   turn(dice1?: number, dice2?: number): string[] {
@@ -174,27 +187,27 @@ export class Monopoly {
     this.roll = dice1 + dice2;
     const actions: string[] = [];
     const jailCheck = player.jailCheck(dice1, dice2);
-    if (jailCheck[0] === JailCheck.NOT_JAILED) {
+    if (jailCheck === JailCheck.NOT_JAILED) {
       actions.push(`Player ${player.index + 1} rolls ${dice1} and ${dice2}`);
-    } else if (jailCheck[0] === JailCheck.CARD) {
+    } else if (jailCheck === JailCheck.CARD) {
       actions.push(`Player ${player.index + 1} uses a get out of jail free card`);
       actions.push(`Player ${player.index + 1} rolls ${dice1} and ${dice2}`);
-    } else if (jailCheck[0] === JailCheck.PAYING) {
+    } else if (jailCheck === JailCheck.PAYING) {
       actions.push(`Player ${player.index + 1} pays to get out of jail`);
       actions.push(`Player ${player.index + 1} rolls ${dice1} and ${dice2}`);
-    } else if (jailCheck[0] === JailCheck.THIRD_ROLL) {
+    } else if (jailCheck === JailCheck.THIRD_ROLL) {
       actions.push(`Player ${player.index + 1} rolls ${dice1} and ${dice2}`);
       actions.push(`Player ${player.index + 1} has to pay to get out of jail`);
       const [success, action] = player.spend(50);
       actions.push(action);
-    } else if (jailCheck[0] === JailCheck.DOUBLE) {
+    } else if (jailCheck === JailCheck.DOUBLE) {
       actions.push(`Player ${player.index + 1} rolls ${dice1} and ${dice2}`);
       actions.push(`Player ${player.index + 1} rolls a double to get out of jail`);
-    } else if (jailCheck[0] === JailCheck.JAILED) {
+    } else if (jailCheck === JailCheck.JAILED) {
       actions.push(`Player ${player.index + 1} rolls ${dice1} and ${dice2}`);
       actions.push(`Player ${player.index + 1} still in jail`);
     }
-    if (jailCheck[0] !== JailCheck.JAILED) {
+    if (jailCheck !== JailCheck.JAILED) {
       if (player.move(dice1 + dice2)) actions.push(`Player ${player.index + 1} passes Go, collects 200 (${player.money})`);
       const actions1 = this.handleTile();
       actions.push(...actions1);
@@ -204,14 +217,12 @@ export class Monopoly {
       if (this.doubles === 3) {
         actions.push(`Player ${player.index + 1} rolls three doubles and goes to jail`);
         player.jail();
-        this.nextPlayer();
+        actions.push(...this.nextPlayer());
       } else {
         actions.push(...this.turn());
       }
     } else {
-      // TODO trade
-      // TODO build
-      this.nextPlayer();
+      actions.push(...this.nextPlayer());
     }
     return actions;
   }
@@ -234,8 +245,6 @@ export class Monopoly {
         const actions1 = this.handleCard(card);
         actions.push(...actions1);
       }
-    } else if (tile.type === 'go') {
-      player.passGo();
     } else if (tile.type === 'go-to-jail') {
       actions.push(player.jail());
     } else if (tile.type === 'tax') {
@@ -251,10 +260,7 @@ export class Monopoly {
       } else if (tile.owner === player.index) {
         actions.push(`Player ${player.index + 1} owns ${this.localizeItem(tile)}`);
       } else {
-        let rent = tile.rent[tile.buildings];
-        const set = this.set(tile.set);
-        if (tile.buildings === 0 && set.every(t => t.owner === tile.owner)) rent *= 2;
-        const [success, action] = player.spend(rent, this.players[tile.owner]);
+        const [success, action] = player.spend(this.calculateRent(tile), this.players[tile.owner]);
         actions.push(action);
       }
     } else if (tile.type === 'railroad') {
@@ -267,7 +273,7 @@ export class Monopoly {
       } else if (tile.owner === player.index) {
         actions.push(`Player ${player.index + 1} owns ${this.localizeItem(tile)}`);
       } else {
-        const [success, action] = player.spend(50 * this.players[tile.owner].railroads().length, this.players[tile.owner]);
+        const [success, action] = player.spend(this.calculateRent(tile), this.players[tile.owner]);
         actions.push(action);
       }
     } else if (tile.type === 'utility') {
@@ -280,9 +286,7 @@ export class Monopoly {
       } else if (tile.owner === player.index) {
         actions.push(`Player ${player.index + 1} owns ${this.localizeItem(tile)}`);
       } else {
-        const utilities = this.players[tile.owner].utilities().length;
-        const multiplier = utilities === 1 ? 4 : 10;
-        const [success, action] = player.spend(this.roll * multiplier, this.players[tile.owner]);
+        const [success, action] = player.spend(this.calculateRent(tile), this.players[tile.owner]);
         actions.push(action);
       }
     }
@@ -291,7 +295,6 @@ export class Monopoly {
 
   handleCard(card: CCard): string[] {
     const player = this.players[this.turnOfPlayer];
-    const tile = this.board[this.players[this.turnOfPlayer].position];
     const actions = [`Player ${player.index + 1} draws card: ${this.localizeItem(card)}`];
     if (card.type === 'advance') {
       if (card.data === undefined) return [];
@@ -316,7 +319,7 @@ export class Monopoly {
       if (card.data === undefined) return [];
       const steps = +card.data;
       if (isNaN(steps)) return [];
-      player.move(steps);
+      player.move(-steps);
       const actions1 = this.handleTile();
       return [...actions, ...actions1];
     }
@@ -421,5 +424,24 @@ export class Monopoly {
       actions.push(`No one bids for ${this.localizeItem(tile)}`);
     }
     return actions;
+  }
+
+  calculateRent(tile: OwnableBoardItem, roll?: number): number {
+    if (tile.owner === -1) return 0;
+    if (!roll) roll = this.roll;
+    if (tile.type === 'property') {
+      const set = this.set(tile.set);
+      let rent = tile.rent[tile.buildings];
+      if (tile.buildings === 0 && set.every(t => t.owner === tile.owner)) rent *= 2;
+      return rent;
+    }
+    if (tile.type === 'railroad') {
+      return tile.rent[this.players[tile.owner].railroads().length - 1];
+    }
+    if (tile.type === 'utility') {
+      const utilities = this.players[tile.owner].utilities().length;
+      return roll * tile.rent[utilities - 1];
+    }
+    return 0;
   }
 }
