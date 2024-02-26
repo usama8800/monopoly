@@ -138,7 +138,12 @@ export class Monopoly {
 
     if (Object.prototype.hasOwnProperty.call(item, 'name')) {
       const name = (item as any).name;
-      return typeof name === 'string' ? name : name[this.edition];
+      let ret = typeof name === 'string' ? name : name[this.edition];
+      if (item.type === 'property') {
+        if (item.buildings > 0 && item.buildings < 5) ret += ` (${item.buildings} 🏠)`;
+        if (item.buildings === 5) ret += ' (🏨)';
+      }
+      return ret;
     } else {
       const desc: string = (item as any).description;
       return desc.replace(/@(\d+)/, (_, p1) => this.localizeItem({ index: parseInt(p1, 10), type: 'board' }));
@@ -219,7 +224,8 @@ export class Monopoly {
         player.jail();
         actions.push(...this.nextPlayer());
       } else {
-        actions.push(...this.turn());
+        if (!player.isJailed) actions.push(...this.turn());
+        else actions.push(...this.nextPlayer());
       }
     } else {
       actions.push(...this.nextPlayer());

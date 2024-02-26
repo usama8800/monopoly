@@ -74,7 +74,7 @@ function gameInfo(game: Monopoly) {
       if ((tile.type === 'property' || tile.type === 'railroad' || tile.type === 'utility') && tile.owner === player.index) {
         const prevLengthNeeded = (colLength + colGap.length) * (i % playersPerRow);
         lines[k] = padEnd(lines[k] ?? '', prevLengthNeeded);
-        lines[k] += padStart(`${k - lineRow - 5}`, 2) + '. ' + chalk.hex(game.tileColor(tile))(padEnd(game.localizeItem(tile), colLength - 4));
+        lines[k] += padStart(`${k - lineRow - lineOfPlayer + 1}`, 2) + '. ' + chalk.hex(game.tileColor(tile))(padEnd(game.localizeItem(tile), colLength - 4));
         k++;
       }
       if (k > tableRow) tableRow = k;
@@ -88,10 +88,6 @@ function gameInfo(game: Monopoly) {
   }
 
   return lines.join('\n');
-}
-
-function lineAdd(lines: string[], row: number, line: string) {
-  lines[row] = (lines[row] ?? '') + line;
 }
 
 main();
