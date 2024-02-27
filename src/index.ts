@@ -5,6 +5,7 @@ import { Monopoly } from './monopoly';
 import { Player } from './player';
 import { padEnd, padStart } from './utils';
 
+const playerColors = ['red', 'green', 'blue', 'yellow', 'magenta', 'cyan', 'white'];
 const seed = 5;
 const auto = {
   rounds: 0,
@@ -28,15 +29,22 @@ async function main() {
           name: `Next turn (Player ${game.turnOfPlayer + 1} round ${game.rounds + 1})`,
           value: 'turn',
         }, {
-          name: 'Info',
-          value: 'info',
+          name: 'Players info',
+          value: 'players',
+        }, {
+          name: 'Board info',
+          value: 'board',
         }, {
           name: 'Exit',
           value: 'exit'
         }]
       });
-      if (selected === 'info') {
-        console.log(gameInfo(game), '\n');
+      if (selected === 'players') {
+        console.log(printPlayers(game), '\n');
+        continue;
+      }
+      if (selected === 'board') {
+        console.log(printBoard(game), '\n');
         continue;
       }
       yes = selected === 'turn';
@@ -45,17 +53,16 @@ async function main() {
 
     const actions = game.turn();
     console.log(actions.join('\n'), '\n');
-    console.log(gameInfo(game), '\n');
+    console.log(printPlayers(game), '\n');
   }
 }
 
-function gameInfo(game: Monopoly) {
+function printPlayers(game: Monopoly) {
   const lines: string[] = [];
   const colLength = 35;
   const playersPerRow = 3;
   let colGap = '';
   const rowGap = 3;
-  const playerColors = ['red', 'green', 'blue', 'yellow', 'magenta', 'cyan', 'white'];
   let lineRow = 0;
   let tableRow = 0;
   for (let i = 0; i < game.players.length; i++) {
@@ -86,8 +93,57 @@ function gameInfo(game: Monopoly) {
       colGap = '';
     }
   }
-
   return lines.join('\n');
+}
+
+function printBoard(game: Monopoly) {
+  const colEnds = [30, 37, 49, 57];
+  let header = padEnd(' #  Tile', colEnds[0]);
+  header = padEnd(header + 'Cost', colEnds[1]);
+  header = padEnd(header + 'Owner', colEnds[2]);
+  header = padEnd(header + 'Rent', colEnds[3]);
+  header += 'Players';
+  const board = game.board;
+  const boardLines = [header];
+  for (let i = 0; i < board.length; i++) {
+    const tile = board[i];
+    if (i !== 0 && (tile as any).corner) boardLines.push('');
+    // Serial
+    let line = padStart((i + 1).toString(), 2) + ': ';
+    // Tile
+    line += chalk.hex(game.tileColor(tile))(game.localizeItem(tile));
+    line = padEnd(line, colEnds[0]);
+    // Cost
+    if (['railroad', 'utility', 'property', 'tax'].includes(tile.type)) {
+      const cost = (tile as any).cost;
+      line += `${cost}`;
+    }
+    line = padEnd(line, colEnds[1]);
+    // Owner
+    if (['railroad', 'utility', 'property'].includes(tile.type)) {
+      const owner = (tile as any).owner;
+      if (owner !== undefined && owner !== -1) {
+        line += chalk[owner < 6 ? playerColors[owner] : 6](`Player ${owner + 1}`);
+      } else {
+        line += 'Bank';
+      }
+    }
+    line = padEnd(line, colEnds[2]);
+    // Rent
+    if (['railroad', 'utility', 'property'].includes(tile.type)) {
+      const rent = game.calculateRent(tile as any);
+      if (rent > 0) line += `${rent}`;
+    }
+    line = padEnd(line, colEnds[3]);
+    // Players
+    const players = game.players.filter(player => player.position === i);
+    const playerStr = players.length ? players.map(player =>
+      chalk[player.index < 6 ? playerColors[player.index] : 6](`Player ${player.index + 1}`)
+    ).join('   ') : '';
+    line += chalk.bold(playerStr);
+    boardLines.push(line);
+  }
+  return boardLines.join('\n');
 }
 
 main();

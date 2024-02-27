@@ -236,7 +236,7 @@ export class Player {
   endTurn(): string[] {
     const actions: string[] = [];
     let usableMoney = this.usableMoney();
-    console.log(this.money, usableMoney);
+
     const wantTrade: OwnableBoardItem[] = [];
     const sets = groupBy(this.properties(), 'set');
     for (const set in sets) {
@@ -244,6 +244,12 @@ export class Player {
       const notInMySet = totalSet.filter(t => t.owner !== this.index);
       if (notInMySet.length === 1 && notInMySet[0].owner !== -1)
         wantTrade.push(notInMySet[0]);
+    }
+    for (const want of wantTrade) {
+      const [to, giving, receiving] = this.generateTradeOffer(want);
+      if (to === -1) continue;
+      const [accepted, tradeActions] = this.sendTradeOffer(giving, receiving, this.game.players[to]);
+      actions.push(...tradeActions);
     }
 
     let wantBuildSet: { [key: string]: number } = {};
@@ -371,6 +377,21 @@ export class Player {
     return Math.floor(value);
   }
 
+  generateTradeOffer(want: OwnableBoardItem): [number, TradeItem[], TradeItem[]] {
+    const toIndex = want.owner;
+    if (toIndex === -1) return [-1, [], []];
+    const to = this.game.players[toIndex];
+    const myProperties = groupBy(this.properties(), 'set');
+    const myRailroads = this.railroads();
+    const myUtilities = this.utilities();
+    const theirProperties = groupBy(to.properties(), 'set');
+    const theirRailroads = to.railroads();
+    const theirUtilities = to.utilities();
+
+
+    return [-1, [], []];
+  }
+
   receiveTradeOffer(giving: TradeItem[], receiving: TradeItem[], from: Player): boolean {
     const myProperties = groupBy(this.properties(), 'set');
     const givingProperties = groupBy(giving.filter(t => t.tile && t.tile.type === 'property') as Property[], 'set');
@@ -432,7 +453,6 @@ export class Player {
           actions.push(`Player ${to.index + 1} gave $${money} to Player ${this.index + 1}`);
         }
       }
-
     }
     return [accepted, actions];
   }
