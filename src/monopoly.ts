@@ -1,3 +1,4 @@
+import chalk from 'chalk';
 import { readJsonSync } from 'fs-extra';
 import { join } from 'path';
 import { Player } from './player';
@@ -85,6 +86,20 @@ export class Monopoly {
   roll = 0;
   edition: 'uk' | 'us' = 'uk';
   seed?: number;
+  config = {
+    mortgageMultiplier: 0.5,
+    unmortgageMultiplier: 1.1,
+    lateUnmortgageMultiplier: 1.2,
+    demolishMultiplier: 0.5,
+    auctions: true,
+    minBidIncrease: 1,
+    noMonopoliesNeeded: false,
+    jailChooseAfterRolling: false,
+    freeParkingTaxes: false,
+    sellJailCard: false,
+    mortageRemovesDoubleRent: false,
+  };
+  lastActions: string[] = [];
 
   constructor(config?: {
     edition?: 'uk' | 'us';
@@ -121,7 +136,7 @@ export class Monopoly {
     this.players.push(player);
   }
 
-  localizeItem(data: { index: number, type: 'board' | 'chance' | 'community-chest' } | BoardItem | CCard): string {
+  localizeItem(data: { index: number, type: 'board' | 'chance' | 'community-chest' } | BoardItem | CCard, color = true): string {
     let item: BoardItem | CCard;
     if (['board', 'chance', 'community-chest'].includes(data.type) && data['name'] === undefined) {
       const { index, type } = data as any;
@@ -143,6 +158,12 @@ export class Monopoly {
         if (item.buildings > 0 && item.buildings < 5) ret += ` (${item.buildings} 🏠)`;
         if (item.buildings === 5) ret += ' (🏨)';
       }
+      if (item.type === 'railroad' || item.type === 'utility' || item.type === 'property') {
+        if (item.mortgaged) {
+          ret += ' 🚫';
+        }
+      }
+      if (color) return chalk.hex(this.tileColor(item as BoardItem, ret))(ret);
       return ret;
     } else {
       const desc: string = (item as any).description;
@@ -150,10 +171,11 @@ export class Monopoly {
     }
   }
 
-  tileColor(tile: BoardItem): string {
+  tileColor(tile: BoardItem, localized?: string): string {
     if (tile.type === 'property') return tile.color;
     if (tile.type === 'railroad') return '#000000';
-    if (tile.type === 'utility' && this.localizeItem(tile).toLowerCase().includes('water')) return '#00b1ee';
+    localized = localized ?? this.localizeItem(tile, false);
+    if (tile.type === 'utility' && localized.toLowerCase().includes('water')) return '#00b1ee';
     if (tile.type === 'utility') return '#ffdf91';
     return '#ffffff';
   }
@@ -203,8 +225,8 @@ export class Monopoly {
     } else if (jailCheck === JailCheck.THIRD_ROLL) {
       actions.push(`Player ${player.index + 1} rolls ${dice1} and ${dice2}`);
       actions.push(`Player ${player.index + 1} has to pay to get out of jail`);
-      const [success, action] = player.spend(50);
-      actions.push(action);
+      const [success, actions1] = player.spend(50);
+      actions.push(...actions1);
     } else if (jailCheck === JailCheck.DOUBLE) {
       actions.push(`Player ${player.index + 1} rolls ${dice1} and ${dice2}`);
       actions.push(`Player ${player.index + 1} rolls a double to get out of jail`);
@@ -230,13 +252,14 @@ export class Monopoly {
     } else {
       actions.push(...this.nextPlayer());
     }
+    this.lastActions = actions;
     return actions;
   }
 
   handleTile(): string[] {
     const player = this.players[this.turnOfPlayer];
     const tile = this.board[player.position];
-    const actions = [`Player ${player.index + 1} lands on ${this.localizeItem(tile)} (${player.positionString()})`];
+    const actions = [`Player ${player.index + 1} (${player.money}) lands on ${this.localizeItem(tile)} (${player.positionString()})`];
     if (tile.type === 'chance') {
       if (this.chance.length === 0) this.setChance();
       const card = this.chance.shift();
@@ -254,46 +277,23 @@ export class Monopoly {
     } else if (tile.type === 'go-to-jail') {
       actions.push(player.jail());
     } else if (tile.type === 'tax') {
-      const [success, action] = player.spend(tile.cost);
-      actions.push(action);
-    } else if (tile.type === 'property') {
+      const [success, actions1] = player.spend(tile.cost);
+      actions.push(...actions1);
+    } else if (tile.type === 'property' || tile.type === 'railroad' || tile.type === 'utility') {
+      const rent = this.calculateRent(tile);
       if (tile.owner === -1) {
         if (player.willBuy(tile)) {
+          const [success, actions1] = player.spend(tile.cost);
           tile.owner = player.index;
-          player.spend(tile.cost);
-          actions.push(`Player ${player.index + 1} buys ${this.localizeItem(tile)} for ${tile.cost} (${player.money})`);
+          actions.push(...actions1);
+          actions.push(`Player ${player.index + 1} gets ${this.localizeItem(tile)}`);
         } else actions.push(...this.auction(tile));
       } else if (tile.owner === player.index) {
         actions.push(`Player ${player.index + 1} owns ${this.localizeItem(tile)}`);
-      } else {
-        const [success, action] = player.spend(this.calculateRent(tile), this.players[tile.owner]);
-        actions.push(action);
-      }
-    } else if (tile.type === 'railroad') {
-      if (tile.owner === -1) {
-        if (player.willBuy(tile)) {
-          tile.owner = player.index;
-          player.spend(tile.cost);
-          actions.push(`Player ${player.index + 1} buys ${this.localizeItem(tile)} for ${tile.cost} (${player.money})`);
-        } else actions.push(...this.auction(tile));
-      } else if (tile.owner === player.index) {
-        actions.push(`Player ${player.index + 1} owns ${this.localizeItem(tile)}`);
-      } else {
-        const [success, action] = player.spend(this.calculateRent(tile), this.players[tile.owner]);
-        actions.push(action);
-      }
-    } else if (tile.type === 'utility') {
-      if (tile.owner === -1) {
-        if (player.willBuy(tile)) {
-          tile.owner = player.index;
-          player.spend(tile.cost);
-          actions.push(`Player ${player.index + 1} buys ${this.localizeItem(tile)} for ${tile.cost} (${player.money})`);
-        } else actions.push(...this.auction(tile));
-      } else if (tile.owner === player.index) {
-        actions.push(`Player ${player.index + 1} owns ${this.localizeItem(tile)}`);
-      } else {
-        const [success, action] = player.spend(this.calculateRent(tile), this.players[tile.owner]);
-        actions.push(action);
+      } else if (rent) {
+        actions[actions.length - 1] += '. Rent: ' + rent;
+        const [success, actions1] = player.spend(rent, this.players[tile.owner]);
+        actions.push(...actions1);
       }
     }
     return actions;
@@ -344,8 +344,8 @@ export class Monopoly {
       if (card.data === undefined) return [];
       const amount = +card.data;
       if (isNaN(amount)) return [];
-      const [success, action] = player.spend(amount);
-      actions.push(action);
+      const [success, actions1] = player.spend(amount);
+      actions.push(...actions1);
       return actions;
     }
     if (card.type === 'earn-each-player') {
@@ -354,8 +354,8 @@ export class Monopoly {
       if (isNaN(amount)) return [];
       const players = this.players.filter((_, i) => i !== this.turnOfPlayer);
       for (const otherPlayer of players) {
-        const [success, action] = otherPlayer.spend(amount, player);
-        actions.push(action);
+        const [success, actions1] = otherPlayer.spend(amount, player);
+        actions.push(...actions1);
       }
       return actions;
     }
@@ -366,8 +366,8 @@ export class Monopoly {
       const players = this.players.filter((_, i) => i !== this.turnOfPlayer);
       if (player.money > amount * players.length)
         for (const otherPlayer of players) {
-          const [success, action] = player.spend(amount, otherPlayer);
-          actions.push(action);
+          const [success, actions1] = player.spend(amount, otherPlayer);
+          actions.push(...actions1);
         }
       else {
         // TODO
@@ -382,8 +382,8 @@ export class Monopoly {
       const houses = properties.reduce((acc, property) => acc + (property.buildings === 5 ? 0 : property.buildings), 0);
       const hotels = properties.reduce((acc, property) => acc + (property.buildings === 5 ? 1 : 0), 0);
       const amount = houseRepair * houses + hotelRepair * hotels;
-      const [success, action] = player.spend(amount);
-      actions.push(action);
+      const [success, actions1] = player.spend(amount);
+      actions.push(...actions1);
       return actions;
     }
     if (card.type === 'jail-card') {
@@ -420,12 +420,10 @@ export class Monopoly {
       actions.push(`\tPlayer ${i + 1}\t${bids[i]}`);
     }
     if (highestBidder !== -1) {
-      this.players[highestBidder].spend(highestBid);
+      actions.push(`Player ${highestBidder + 1} wins the auction`);
+      const [success, actions1] = this.players[highestBidder].spend(highestBid);
       tile.owner = highestBidder;
-      actions.push(`Player ${highestBidder + 1} wins the auction for ${this.localizeItem(tile)} for ${highestBid}`);
-      tile.owner = highestBidder;
-      this.players[highestBidder].spend(highestBid);
-
+      actions.push(...actions1);
     } else {
       actions.push(`No one bids for ${this.localizeItem(tile)}`);
     }
@@ -433,7 +431,7 @@ export class Monopoly {
   }
 
   calculateRent(tile: OwnableBoardItem, roll?: number): number {
-    if (tile.owner === -1) return 0;
+    if (tile.owner === -1 || tile.mortgaged) return 0;
     if (!roll) roll = this.roll;
     if (tile.type === 'property') {
       const set = this.set(tile.set);
