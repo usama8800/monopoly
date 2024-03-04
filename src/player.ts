@@ -1,6 +1,4 @@
-import { appendFileSync, writeFileSync } from 'fs-extra';
 import { cloneDeep, groupBy, max, min, sum } from 'lodash';
-import stripAnsi from 'strip-ansi';
 import { JailCheck, Monopoly, OwnableBoardItem, Property, Railroad, Utility } from './monopoly';
 import { rollDice } from './utils';
 
@@ -171,23 +169,23 @@ export class Player {
         to.earn(amount);
         return [true, [`Player ${this.index + 1} (${this.money}) paid ${amount} to Player ${to.index + 1} (${this.game.players[to.index].money})`]];
       }
-      return [true, [`Player ${this.index + 1} paid ${amount} to bank (${this.money})`]];
+      return [true, [`Player ${this.index + 1} (${this.money}) paid ${amount} to bank`]];
     } else {
       let jailCards = this.jailCards;
-      let properties = cloneDeep(this.properties());
+      let properties: (Property & { unusable?: boolean })[] = cloneDeep(this.properties());
       let utilities = cloneDeep(this.utilities());
       let railroads = cloneDeep(this.railroads());
+      const currentTile = this.game.board[this.position] as (Property & { unusable?: boolean });
+      if (currentTile.type === 'property' && currentTile.owner === -1) {
+        const clone = cloneDeep(currentTile);
+        clone.unusable = true;
+        clone.owner = this.index;
+        properties.push(clone);
+      }
       const actions: string[] = [];
       while (true) {
         console.log('Need to make', diff);
-        // console.log(jailCards, properties, utilities, railroads);
-        const oldLog = console.log;
-        writeFileSync('log.md', '');
-        console.log = (...x) => {
-          appendFileSync('log.md', x.map(q => stripAnsi(typeof q === 'string' ? q : JSON.stringify(q, null, 2))).join(' ') + '\n');
-        };
         const [amountLeft, whatToDo] = this.makeMoney(diff, jailCards, groupBy(properties, 'set'), utilities, railroads);
-        console.log = oldLog;
         console.log(amountLeft, whatToDo.map(x =>
           x.demolish ? 'Remove a house from ' + this.game.localizeItem(x.demolish, false)
             : x.jailCard ? 'Sell one jail card'
@@ -203,17 +201,15 @@ export class Player {
             if (accepted === -1) {
               jailCards--;
               noProblems = false;
-              break;
+              console.log('No one bought jail card');
+            } else {
+              diff -= 50;
+              actions.push(...actions1);
             }
-            diff -= 50;
-            actions.push(...actions1);
           } else if (action.demolish) {
             const tile = this.game.board[action.demolish.index] as Property;
-            tile.buildings--;
-            const making = tile.buildingCost * this.game.config.demolishMultiplier;
-            this.money += making;
-            diff -= making;
-            actions.push(`Player ${this.index + 1} removed a house from ${this.game.localizeItem(tile)} for ${making}`);
+            actions.push(this.demolish(tile));
+            diff -= tile.buildingCost * this.game.config.demolishMultiplier;
           } else if (action.mortgage) {
             const tile = this.game.board[action.mortgage.index] as OwnableBoardItem;
             actions.push(this.mortgage(tile));
@@ -234,11 +230,12 @@ export class Player {
               utilities = utilities.filter(u => u.index !== tile!.index);
               railroads = railroads.filter(r => r.index !== tile!.index);
               properties = properties.filter(p => p.index !== tile!.index);
+              console.log('No one bought', this.game.localizeItem(tile!));
               noProblems = false;
-              break;
+            } else {
+              diff -= making;
+              actions.push(...actions1);
             }
-            diff -= making;
-            actions.push(...actions1);
           }
         }
         if (noProblems) break;
@@ -250,175 +247,182 @@ export class Player {
     }
   }
 
-  makeMoney(amount: number, jailCards: number, properties: { [key: string]: Property[] }, utilities: Utility[], railroads: Railroad[],
-    depth = 0): [number, {
+  makeMoney(amount: number, jailCards: number, properties: { [key: string]: (Property & { unusable?: boolean })[] },
+    utilities: Utility[], railroads: Railroad[]): [number, {
       jailCard?: boolean,
       mortgage?: OwnableBoardItem,
       sell?: OwnableBoardItem,
       demolish?: Property,
     }[]] {
-    const indent = '  '.repeat(depth) + '- ' + amount + ': ';
-    if (amount < 0) {
-      console.log(indent + 'negative amount');
-      return [amount, []];
-    }
-    for (const action of this.config.makeMoneyOrder) {
+    const actions: {
+      jailCard?: boolean,
+      mortgage?: OwnableBoardItem,
+      sell?: OwnableBoardItem,
+      demolish?: Property,
+    }[] = [];
+    let actionIndex = 0;
+    while (actionIndex < this.config.makeMoneyOrder.length && amount > 0) {
+      const action = this.config.makeMoneyOrder[actionIndex];
       switch (action) {
         case MakeMoney.SELL | MakeMoney.JAIL_CARD:
           if (jailCards > 0) {
-            console.log(indent + 'sell jail card');
-            const withSell = this.makeMoney(amount - 50, jailCards - 1, properties, utilities, railroads, depth + 1);
-            const withoutSell = this.makeMoney(amount, jailCards - 1, properties, utilities, railroads, depth + 1);
-            if (withSell[0] < withoutSell[0] && withoutSell[0] <= 0) return withoutSell;
-            return [withSell[0] - 50, [{ jailCard: true }, ...withSell[1]]];
-          }
+            // console.log('sell jail card');
+            amount -= 50;
+            jailCards--;
+            actions.push({ jailCard: true });
+          } else actionIndex++;
           break;
         case MakeMoney.MORTGAGE | MakeMoney.UTILITY: {
-          const unmortgagedUtility = utilities.find(u => !u.mortgaged);
-          if (unmortgagedUtility) {
-            console.log(indent + 'mortgage', this.game.localizeItem(unmortgagedUtility));
-            unmortgagedUtility.mortgaged = true;
-            const making = unmortgagedUtility.cost * this.game.config.mortgageMultiplier;
-            const withMortgage = this.makeMoney(amount - making, jailCards, properties, utilities, railroads, depth + 1);
-            const withoutMortgage = this.makeMoney(amount, jailCards, properties, utilities, railroads, depth + 1);
-            unmortgagedUtility.mortgaged = false;
-            if (withMortgage[0] < withoutMortgage[0] && withoutMortgage[0] <= 0) return withoutMortgage;
-            return [withMortgage[0] - making, [{ mortgage: unmortgagedUtility }, ...withMortgage[1]]];
+          let found = false;
+          for (let i = 0; i < utilities.length; i++) {
+            const utility = utilities[i];
+            if (utility.mortgaged) continue;
+            // console.log('mortgage', this.game.localizeItem(utility));
+            amount -= utility.cost * this.game.config.mortgageMultiplier;
+            utility.mortgaged = true;
+            actions.push({ mortgage: utility });
+            found = true;
+            break;
           }
+          if (!found) actionIndex++;
           break;
         }
         case MakeMoney.SELL | MakeMoney.UTILITY: {
           const utility = utilities.pop();
           if (utility) {
-            console.log(indent + 'sell', this.game.localizeItem(utility));
-            const making = utility.mortgaged ? utility.cost * this.game.config.mortgageMultiplier : utility.cost;
-            const withSell = this.makeMoney(amount - making, jailCards, properties, utilities, railroads, depth + 1);
-            const withoutSell = this.makeMoney(amount, jailCards, properties, utilities, railroads, depth + 1);
-            utilities.push(utility);
-            if (withSell[0] < withoutSell[0] && withoutSell[0] <= 0) return withoutSell;
-            return [withSell[0] - making, [{ sell: utility }, ...withSell[1]]];
-          }
+            // console.log('sell', this.game.localizeItem(utility));
+            amount -= utility.mortgaged ? utility.cost * this.game.config.mortgageMultiplier : utility.cost;
+            actions.push({ sell: utility });
+          } else actionIndex++;
           break;
         }
         case MakeMoney.MORTGAGE | MakeMoney.RAILROAD: {
-          const unmortgagedRailroad = railroads.find(r => !r.mortgaged);
-          if (unmortgagedRailroad) {
-            console.log(indent + 'mortgage', this.game.localizeItem(unmortgagedRailroad));
-            unmortgagedRailroad.mortgaged = true;
-            const making = unmortgagedRailroad.cost * this.game.config.mortgageMultiplier;
-            const withMortgage = this.makeMoney(amount - making, jailCards, properties, utilities, railroads, depth + 1);
-            const withoutMortgage = this.makeMoney(amount, jailCards, properties, utilities, railroads, depth + 1);
-            unmortgagedRailroad.mortgaged = false;
-            if (withMortgage[0] < withoutMortgage[0] && withoutMortgage[0] <= 0) return withoutMortgage;
-            return [withMortgage[0] - making, [{ mortgage: unmortgagedRailroad }, ...withMortgage[1]]];
+          let found = false;
+          for (let i = 0; i < railroads.length; i++) {
+            const railroad = railroads[i];
+            if (railroad.mortgaged) continue;
+            // console.log('mortgage', this.game.localizeItem(railroad));
+            amount -= railroad.cost * this.game.config.mortgageMultiplier;
+            railroad.mortgaged = true;
+            actions.push({ mortgage: railroad });
+            found = true;
+            break;
           }
+          if (!found) actionIndex++;
           break;
         }
         case MakeMoney.SELL | MakeMoney.RAILROAD: {
-          const railroad = railroads.pop();
-          if (railroad) {
-            console.log(indent + 'sell', this.game.localizeItem(railroad));
-            const making = railroad.mortgaged ? railroad.cost * this.game.config.mortgageMultiplier : railroad.cost;
-            const withSell = this.makeMoney(amount - making, jailCards, properties, utilities, railroads, depth + 1);
-            const withoutSell = this.makeMoney(amount, jailCards, properties, utilities, railroads, depth + 1);
-            railroads.push(railroad);
-            if (withSell[0] < withoutSell[0] && withoutSell[0] <= 0) return withoutSell;
-            return [withSell[0] - making, [{ sell: railroad }, ...withSell[1]]];
-          }
+          const utility = railroads.pop();
+          if (utility) {
+            // console.log('sell', this.game.localizeItem(utility));
+            amount -= utility.mortgaged ? utility.cost * this.game.config.mortgageMultiplier : utility.cost;
+            actions.push({ sell: utility });
+          } else actionIndex++;
           break;
         }
-        case MakeMoney.MORTGAGE | MakeMoney.NONSET_PROPERTY:
-          for (const set in properties) {
+        case MakeMoney.MORTGAGE | MakeMoney.NONSET_PROPERTY: {
+          let found = false;
+          setLabel: for (const set in properties) {
             const totalSet = this.game.set(+set);
-            if (totalSet.every(t => t.owner === this.index)) continue;
-            const unmortgaged = properties[set].find(t => !t.mortgaged);
-            if (unmortgaged) {
-              unmortgaged.mortgaged = true;
-              const making = unmortgaged.cost * this.game.config.mortgageMultiplier;
-              console.log(indent + 'mortgage', this.game.localizeItem(unmortgaged), making);
-              const withMortgage = this.makeMoney(amount - making, jailCards, properties, utilities, railroads, depth + 1);
-              const withoutMortgage = this.makeMoney(amount, jailCards, properties, utilities, railroads, depth + 1);
-              unmortgaged.mortgaged = false;
-              if (withMortgage[0] < withoutMortgage[0] && withoutMortgage[0] <= 0) return withoutMortgage;
-              return [withMortgage[0] - making, [{ mortgage: unmortgaged }, ...withMortgage[1]]];
+            if (totalSet.length === properties[set].length) continue;
+            for (let i = 0; i < properties[set].length; i++) {
+              const property = properties[set][i];
+              if (property.mortgaged || property.unusable) continue;
+              // console.log('mortgage nonset', this.game.localizeItem(property));
+              amount -= property.cost * this.game.config.mortgageMultiplier;
+              property.mortgaged = true;
+              actions.push({ mortgage: property });
+              found = true;
+              break setLabel;
             }
           }
+          if (!found) actionIndex++;
           break;
-        case MakeMoney.SELL | MakeMoney.NONSET_PROPERTY:
-          for (const set in properties) {
+        }
+        case MakeMoney.SELL | MakeMoney.NONSET_PROPERTY: {
+          let found = false;
+          setLabel: for (const set in properties) {
             const totalSet = this.game.set(+set);
-            if (totalSet.every(t => t.owner === this.index)) continue;
-            const property = properties[set].pop();
-            if (property) {
-              console.log(indent + 'sell', this.game.localizeItem(property));
-              const making = property.mortgaged ? property.cost * this.game.config.mortgageMultiplier : property.cost;
-              const withSell = this.makeMoney(amount - making, jailCards, properties, utilities, railroads, depth + 1);
-              const withoutSell = this.makeMoney(amount, jailCards, properties, utilities, railroads, depth + 1);
-              properties[set].push(property);
-              if (withSell[0] < withoutSell[0] && withoutSell[0] <= 0) return withoutSell;
-              return [withSell[0] - making, [{ sell: property }, ...withSell[1]]];
+            if (totalSet.length === properties[set].length) continue;
+            for (let i = 0; i < properties[set].length; i++) {
+              const property = properties[set][i];
+              if (property.unusable) continue;
+              // console.log('sell nonset', this.game.localizeItem(property));
+              amount -= property.mortgaged ? property.cost * this.game.config.mortgageMultiplier : property.cost;
+              property.unusable = true;
+              actions.push({ sell: property });
+              found = true;
+              break setLabel;
             }
           }
+          if (!found) actionIndex++;
           break;
-        case MakeMoney.MORTGAGE | MakeMoney.SET_PROPERTY:
-          for (const set in properties) {
-            const totalSet = this.game.set(+set);
-            const mySet = properties[set];
-            if (totalSet.some(t => t.owner !== this.index)) continue;
-            if (mySet.some(t => t.buildings > 0)) continue;
-            const unmortgaged = mySet.find(t => !t.mortgaged);
-            if (unmortgaged) {
-              console.log(indent + 'mortgage', this.game.localizeItem(unmortgaged));
-              unmortgaged.mortgaged = true;
-              const making = unmortgaged.cost * this.game.config.mortgageMultiplier;
-              const withMortgage = this.makeMoney(amount - making, jailCards, properties, utilities, railroads, depth + 1);
-              const withoutMortgage = this.makeMoney(amount, jailCards, properties, utilities, railroads, depth + 1);
-              unmortgaged.mortgaged = false;
-              if (withMortgage[0] < withoutMortgage[0] && withoutMortgage[0] <= 0) return withoutMortgage;
-              return [withMortgage[0] - making, [{ mortgage: unmortgaged }, ...withMortgage[1]]];
-            }
-          }
-          break;
-        case MakeMoney.SELL | MakeMoney.SET_PROPERTY:
-          for (const set in properties) {
+        }
+        case MakeMoney.MORTGAGE | MakeMoney.SET_PROPERTY: {
+          let found = false;
+          setLabel: for (const set in properties) {
             const totalSet = this.game.set(+set);
             const mySet = properties[set];
-            if (totalSet.some(t => t.owner !== this.index)) continue;
+            if (totalSet.length !== mySet.length) continue;
             if (mySet.some(t => t.buildings > 0)) continue;
-            const property = properties[set].pop();
-            if (property) {
-              console.log(indent + 'sell', this.game.localizeItem(property));
-              const making = property.mortgaged ? property.cost * this.game.config.mortgageMultiplier : property.cost;
-              const withSell = this.makeMoney(amount - making, jailCards, properties, utilities, railroads, depth + 1);
-              const withoutSell = this.makeMoney(amount, jailCards, properties, utilities, railroads, depth + 1);
-              properties[set].push(property);
-              if (withSell[0] < withoutSell[0] && withoutSell[0] <= 0) return withoutSell;
-              return [withSell[0] - making, [{ sell: property }, ...withSell[1]]];
+            for (let i = 0; i < mySet.length; i++) {
+              const property = mySet[i];
+              if (property.mortgaged || property.unusable) continue;
+              // console.log('mortgage set', this.game.localizeItem(property));
+              amount -= property.cost * this.game.config.mortgageMultiplier;
+              property.mortgaged = true;
+              actions.push({ mortgage: property });
+              found = true;
+              break setLabel;
             }
           }
+          if (!found) actionIndex++;
           break;
-        case MakeMoney.SELL | MakeMoney.BUILDING:
+        }
+        case MakeMoney.SELL | MakeMoney.SET_PROPERTY: {
+          let found = false;
+          setLabel: for (const set in properties) {
+            const totalSet = this.game.set(+set);
+            const mySet = properties[set];
+            if (totalSet.length !== mySet.length) continue;
+            if (mySet.some(t => t.buildings > 0)) continue;
+            for (let i = 0; i < mySet.length; i++) {
+              const property = mySet[i];
+              if (property.unusable) continue;
+              // console.log('sell set', this.game.localizeItem(property));
+              amount -= property.mortgaged ? property.cost * this.game.config.mortgageMultiplier : property.cost;
+              property.unusable = true;
+              actions.push({ sell: property });
+              found = true;
+              break setLabel;
+            }
+          }
+          if (!found) actionIndex++;
+          break;
+        }
+        case MakeMoney.SELL | MakeMoney.BUILDING: {
+          let found = false;
           for (const set in properties) {
             const mySet = properties[set];
             const [highestBuiltIndex] = mySet.reduce((ret, curr, i) => ret[1] > curr.buildings ? ret : [i, curr.buildings], [-1, -1]);
             if (highestBuiltIndex === -1) continue;
             const highestBuilt = mySet[highestBuiltIndex];
-            if (highestBuilt.buildings === 0) continue;
-            console.log(indent + 'sell house from', this.game.localizeItem(highestBuilt));
+            if (highestBuilt.buildings === 0 || highestBuilt.unusable) continue;
+            // console.log('sell house from', this.game.localizeItem(highestBuilt));
+            amount -= highestBuilt.buildingCost * this.game.config.demolishMultiplier;
             highestBuilt.buildings -= 1;
-            const making = highestBuilt.buildingCost * this.game.config.demolishMultiplier;
-            const withDemolish = this.makeMoney(amount - making, jailCards, properties, utilities, railroads, depth + 1);
-            const withoutDemolish = this.makeMoney(amount, jailCards, properties, utilities, railroads, depth + 1);
-            highestBuilt.buildings += 1;
-            if (withDemolish[0] < withoutDemolish[0] && withoutDemolish[0] <= 0) return withoutDemolish;
-            return [withDemolish[0] - making, [{ demolish: highestBuilt }, ...withDemolish[1]]];
+            actions.push({ demolish: highestBuilt });
+            found = true;
+            break;
           }
+          if (!found) actionIndex++;
           break;
+        }
         default:
           throw new Error('Unkown action');
       }
     }
-    return [amount, []];
+    return [amount, actions];
   }
 
   earn(amount: number): string {
@@ -459,12 +463,20 @@ export class Player {
     return bid;
   }
 
+  demolish(tile: Property): string {
+    if (tile.buildings === 0) return `Player ${this.index + 1} tried to demolish a house from ${this.game.localizeItem(tile)} but there were no houses`;
+    tile.buildings--;
+    const making = tile.buildingCost * this.game.config.demolishMultiplier;
+    this.money += making;
+    return `Player ${this.index + 1} (${this.money}) demolished a house from ${this.game.localizeItem(tile)} for ${making}`;
+  }
+
   mortgage(tile: OwnableBoardItem): string {
     if (tile.mortgaged) return `Player ${this.index + 1} tried to mortgage ${this.game.localizeItem(tile)} but it was already mortgaged`;
     tile.mortgaged = true;
-    const amount = tile.cost * this.game.config.mortgageMultiplier;
-    this.money += amount;
-    return `Player ${this.index + 1} mortgaged ${this.game.localizeItem(tile)} for ${amount}`;
+    const making = tile.cost * this.game.config.mortgageMultiplier;
+    this.money += making;
+    return `Player ${this.index + 1} (${this.money}) mortgaged ${this.game.localizeItem(tile)} for ${making}`;
   }
 
   usableMoney(): number {
@@ -493,6 +505,7 @@ export class Player {
     const actions: string[] = [];
 
     const wantTrade: OwnableBoardItem[] = this.wantInTrade();
+    console.log('wantTrade', wantTrade.map(t => this.game.localizeItem(t, false)));
     for (const want of wantTrade) {
       const [to, giving, receiving] = this.generateTradeOffer(want);
       if (to === -1) continue;
@@ -501,21 +514,45 @@ export class Player {
     }
 
     const building = this.wantToBuild();
-    for (const tileIndex in building) {
+    outer: for (const tileIndex in building) {
       const tile = this.game.board[tileIndex] as Property;
+      const set = this.game.set(tile.set);
+      for (const t of set) {
+        if (t.mortgaged) {
+          const cost = t.cost * this.game.unmortgageMultiplier(t);
+          const [success, actions1] = this.spend(cost);
+          if (!success) break outer;
+          t.mortgaged = false;
+          actions.push(...actions1);
+          actions.push(`Player ${this.index + 1} (${this.money}) unmortgaged ${this.game.localizeItem(t)}`);
+        }
+      }
       const cost = tile.buildingCost * building[tileIndex];
       const [success, actions1] = this.spend(cost);
       if (!success) continue;
       tile.buildings += building[tileIndex];
-      actions.push(`Player ${this.index + 1} built ${building[tileIndex]} houses on ${this.game.localizeItem(tile)} for ${cost}`);
+      actions.push(...actions1);
+      actions.push(`Player ${this.index + 1} (${this.money}) built ${building[tileIndex]} houses on ${this.game.localizeItem(tile)}`);
     }
-    console.log('wantTrade', wantTrade.map(t => this.game.localizeItem(t, false)));
+
+    const wantUnmortgage = this.wantToUnmortgage();
+    for (const tileIndex of wantUnmortgage) {
+      const tile = this.game.board[tileIndex] as OwnableBoardItem;
+      const cost = tile.cost * this.game.unmortgageMultiplier(tile);
+      const [success, actions1] = this.spend(cost);
+      if (!success) continue;
+      tile.mortgaged = false;
+      actions.push(...actions1);
+      actions.push(`Player ${this.index + 1} (${this.money}) unmortgaged ${this.game.localizeItem(tile)}`);
+    }
+
     return actions;
   }
 
   wantInTrade(): OwnableBoardItem[] {
     const ret: OwnableBoardItem[] = [];
     const sets = groupBy(this.properties(), 'set');
+
     for (const set in sets) {
       const totalSet = this.game.set(+set);
       const notInMySet = totalSet.filter(t => t.owner !== this.index);
@@ -529,19 +566,14 @@ export class Player {
     let usableMoney = this.usableMoney();
     let wantBuildSet: { [key: string]: number } = {};
     const wantBuildTile: { [key: string]: number } = {};
-    for (let i = 0; i < this.game.players.length; i++) {
-      if (i === this.index) continue;
-      const p = this.game.players[i];
-      for (let j = 1; j <= 6; j++) {
-        for (let k = 1; k <= 6; k++) {
-          const tile = this.game.board[(p.position + j + k) % this.game.board.length];
-          if (tile.type === 'property' && tile.owner === this.index) {
-            if (wantBuildSet[tile.set]) wantBuildSet[tile.set]++;
-            else wantBuildSet[tile.set] = 1;
-            if (wantBuildTile[tile.index]) wantBuildTile[tile.index]++;
-            else wantBuildTile[tile.index] = 1;
-          }
-        }
+    const freqs = this.landingFrequency();
+    for (let i = 0; i < freqs.length; i++) {
+      const tile = this.game.board[i];
+      if (tile.type === 'property' && tile.owner === this.index) {
+        if (wantBuildSet[tile.set]) wantBuildSet[tile.set] += freqs[i];
+        else wantBuildSet[tile.set] = freqs[i];
+        if (wantBuildTile[tile.index]) wantBuildTile[tile.index] += freqs[i];
+        else wantBuildTile[tile.index] = freqs[i];
       }
     }
     const wantBuildSetArr = Object.entries(wantBuildSet).sort((a, b) => a[1] - b[1]);
@@ -551,6 +583,9 @@ export class Player {
       const set = this.game.set(+setNumber);
       const mySet = set.filter(t => t.owner === this.index);
       if (mySet.length !== set.length) continue;
+      for (let i = 0; i < mySet.length; i++) {
+        if (mySet[i].mortgaged) usableMoney -= mySet[i].cost * this.game.unmortgageMultiplier(mySet[i]);
+      }
       const cost = set[0].buildingCost;
       const maxBuildable = Math.floor(usableMoney / cost);
       const maxBuildSpace = set.length * 5 - sum(mySet.map(t => t.buildings));
@@ -573,7 +608,7 @@ export class Player {
         building[tileWants[minIndex].index] = 1;
         usableMoney -= buildCost;
       }
-      for (let i = 0; i < tileWants.length, usableMoney > buildCost; i++) {
+      for (let i = 0; i < tileWants.length && usableMoney > buildCost; i++) {
         const buildingsOnTile = (building[tileWants[i].index] ?? 0) + tileWants[i].buildings;
         if (buildingsOnTile === 5) continue;
         building[tileWants[i].index] = (building[tileWants[i].index] ?? 0) + 1;
@@ -582,6 +617,48 @@ export class Player {
       }
     }
     return building;
+  }
+
+  wantToUnmortgage(): number[] {
+    let usableMoney = this.usableMoney();
+    const ret: number[] = [];
+    const freqs = this.landingFrequency();
+    const freqsDone: number[] = [];
+    while (true) {
+      let maxIndex = -1;
+      let maxx = 0;
+      for (let i = 0; i < freqs.length; i++) {
+        if (freqs[i] > maxx && !freqsDone.includes(i)) {
+          maxx = freqs[i];
+          maxIndex = i;
+        }
+      }
+      if (maxx === 0) break;
+      freqsDone.push(maxIndex);
+      const tile = this.game.board[maxIndex];
+      if (!tile) break;
+      if ((tile.type === 'property' || tile.type === 'railroad' || tile.type === 'utility') && tile.owner === this.index && tile.mortgaged) {
+        const cost = tile.cost * this.game.unmortgageMultiplier(tile);
+        if (usableMoney > cost) {
+          ret.push(tile.index);
+          usableMoney -= tile.cost * this.game.unmortgageMultiplier(tile);
+        }
+      }
+    }
+    return ret;
+  }
+
+  landingFrequency(): number[] {
+    const freq: number[] = new Array(this.game.board.length).fill(0);
+    for (let playerI = 0; playerI < this.game.players.length; playerI++) {
+      if (playerI === this.index) continue;
+      for (let i = 1; i <= 6; i++) {
+        for (let j = 1; j <= 6; j++) {
+          freq[(this.game.players[playerI].position + i + j) % this.game.board.length]++;
+        }
+      }
+    }
+    return freq;
   }
 
   valuePlayer(p: Player): number {
@@ -696,6 +773,7 @@ export class Player {
       for (const { tile, jailCards, money } of giving) {
         if (tile) {
           tile.owner = to.index;
+          tile.ownershipChanged = [this.game.rounds, this.game.turnOfPlayer];
           actions.push(`Player ${this.index + 1} gave ${this.game.localizeItem(tile)} to Player ${to.index + 1}`);
         } else if (jailCards) {
           to.jailCards += jailCards;
@@ -704,12 +782,13 @@ export class Player {
           else actions.push(`Player ${this.index + 1} gave ${jailCards} Get out of Jail cards to Player ${to.index + 1}`);
         } else if (money) {
           this.spend(money, to);
-          actions.push(`Player ${this.index + 1} gave ${money} to Player ${to.index + 1}`);
+          actions.push(`Player ${this.index + 1} (${this.money}) gave ${money} to Player ${to.index + 1} (${to.money})`);
         }
       }
       for (const { tile, jailCards, money } of receiving) {
         if (tile) {
           tile.owner = this.index;
+          tile.ownershipChanged = [this.game.rounds, this.game.turnOfPlayer];
           actions.push(`Player ${to.index + 1} gave ${this.game.localizeItem(tile)} to Player ${this.index + 1}`);
         } else if (jailCards) {
           this.jailCards += jailCards;
@@ -718,7 +797,7 @@ export class Player {
           else actions.push(`Player ${to.index + 1} gave ${jailCards} Get out of Jail cards to Player ${this.index + 1}`);
         } else if (money) {
           to.spend(money, this);
-          actions.push(`Player ${to.index + 1} gave ${money} to Player ${this.index + 1}`);
+          actions.push(`Player ${to.index + 1} (${to.money}) gave ${money} to Player ${this.index + 1} (${this.money})`);
         }
       }
     }

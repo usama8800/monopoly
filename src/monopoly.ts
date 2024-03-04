@@ -18,6 +18,7 @@ export type Property = {
   buildingCost: number;
   buildings: number;
   mortgaged: boolean;
+  ownershipChanged: [number, number];
   owner: number;
   color: string,
 };
@@ -34,6 +35,7 @@ export type Railroad = {
   cost: number;
   rent: number[];
   mortgaged: boolean;
+  ownershipChanged: [number, number];
   owner: number;
 }
 export type Utility = {
@@ -43,6 +45,7 @@ export type Utility = {
   cost: number;
   rent: number[];
   mortgaged: boolean;
+  ownershipChanged: [number, number];
   owner: number;
 }
 export type CommunityChest = {
@@ -107,10 +110,13 @@ export class Monopoly {
   }) {
     this.board = readJsonSync(join(__dirname, 'data', 'board.json')).map((x: BoardItem, i: number) => {
       x.index = i;
-      if (['railroad', 'utility', 'property'].includes(x.type)) {
-        (x as any).owner = -1;
-        (x as any).buildings = 0;
-        (x as any).mortgaged = false;
+      if (x.type === 'railroad' || x.type === 'utility' || x.type === 'property') {
+        x.owner = -1;
+        x.mortgaged = false;
+        x.ownershipChanged = [0, 0];
+      }
+      if (x.type === 'property') {
+        x.buildings = 0;
       }
       return x;
     });
@@ -234,21 +240,23 @@ export class Monopoly {
       actions.push(`Player ${player.index + 1} rolls ${dice1} and ${dice2}`);
       actions.push(`Player ${player.index + 1} still in jail`);
     }
-    if (jailCheck !== JailCheck.JAILED) {
-      if (player.move(dice1 + dice2)) actions.push(`Player ${player.index + 1} passes Go, collects 200 (${player.money})`);
-      const actions1 = this.handleTile();
-      actions.push(...actions1);
-    }
+    let doubleJailed = false;
     if (dice1 === dice2) {
       this.doubles++;
       if (this.doubles === 3) {
         actions.push(`Player ${player.index + 1} rolls three doubles and goes to jail`);
         player.jail();
-        actions.push(...this.nextPlayer());
-      } else {
-        if (!player.isJailed) actions.push(...this.turn());
-        else actions.push(...this.nextPlayer());
+        doubleJailed = true;
       }
+    }
+    if (!doubleJailed && jailCheck !== JailCheck.JAILED) {
+      if (player.move(dice1 + dice2)) actions.push(`Player ${player.index + 1} passes Go, collects 200 (${player.money})`);
+      const actions1 = this.handleTile();
+      actions.push(...actions1);
+    }
+    if (!doubleJailed && dice1 === dice2) {
+      if (!player.isJailed) actions.push(...this.turn());
+      else actions.push(...this.nextPlayer());
     } else {
       actions.push(...this.nextPlayer());
     }
@@ -289,7 +297,7 @@ export class Monopoly {
           actions.push(`Player ${player.index + 1} gets ${this.localizeItem(tile)}`);
         } else actions.push(...this.auction(tile));
       } else if (tile.owner === player.index) {
-        actions.push(`Player ${player.index + 1} owns ${this.localizeItem(tile)}`);
+        if (rent) actions.push(`Player ${player.index + 1} owns ${this.localizeItem(tile)}`);
       } else if (rent) {
         actions[actions.length - 1] += '. Rent: ' + rent;
         const [success, actions1] = player.spend(rent, this.players[tile.owner]);
@@ -423,6 +431,7 @@ export class Monopoly {
       actions.push(`Player ${highestBidder + 1} wins the auction`);
       const [success, actions1] = this.players[highestBidder].spend(highestBid);
       tile.owner = highestBidder;
+      tile.ownershipChanged = [this.rounds, this.turnOfPlayer];
       actions.push(...actions1);
     } else {
       actions.push(`No one bids for ${this.localizeItem(tile)}`);
@@ -447,5 +456,13 @@ export class Monopoly {
       return roll * tile.rent[utilities - 1];
     }
     return 0;
+  }
+
+  unmortgageMultiplier(tile: OwnableBoardItem): number {
+    let multiplier = this.config.unmortgageMultiplier;
+    const [round, turn] = tile.ownershipChanged;
+    if (this.rounds - round > 1) multiplier = this.config.lateUnmortgageMultiplier;
+    if (this.rounds - round === 1 && this.turnOfPlayer > turn) multiplier = this.config.lateUnmortgageMultiplier;
+    return multiplier / 2;
   }
 }

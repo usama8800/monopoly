@@ -2,13 +2,14 @@ import { select } from '@inquirer/prompts';
 import { ConsoleMonopoly } from './console_monopoly';
 import { Player } from './player';
 
-const seed = 6;
+const seed = 1;
 const auto = {
-  rounds: 31,
+  rounds: 0,
   turns: 0,
 };
 async function main() {
   const game = new ConsoleMonopoly({ seed });
+  game.addPlayer(new Player({ seed }));
   game.addPlayer(new Player({ seed }));
   game.addPlayer(new Player({ seed }));
 
