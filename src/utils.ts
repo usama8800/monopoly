@@ -1,4 +1,4 @@
-import stripAnsi from 'strip-ansi';
+import stringWidth from 'string-width';
 
 const generators = {};
 
@@ -39,14 +39,30 @@ function splitmix32(seed: number) {
   };
 }
 
-export function padStart(str: string, length: number) {
-  const diff = length - stripAnsi(str).length;
-  if (diff > 0) str = ' '.repeat(diff) + str;
+export function padStart(str: string, length: number, repeat = ' ') {
+  const diff = length - strlen(str);
+  if (diff > 0) str = repeat.repeat(diff) + str;
   return str;
 }
 
-export function padEnd(str: string, length: number) {
-  const diff = length - stripAnsi(str).length;
-  if (diff > 0) str = str + ' '.repeat(diff);
+export function padEnd(str: string, length: number, repeat = ' ') {
+  const diff = length - strlen(str);
+  if (diff > 0) str = str + repeat.repeat(diff);
   return str;
+}
+
+export function padCenter(str: string, length: number, repeat = ' ') {
+  const diff = length - strlen(str);
+  if (diff > 0) {
+    const left = Math.floor(diff / 2);
+    const right = diff - left;
+    str = repeat.repeat(left) + str + repeat.repeat(right);
+  }
+  return str;
+}
+
+export function strlen(str: string) {
+  let len = stringWidth(str);
+  if (str.includes('⛓️')) len -= 1;
+  return len;
 }

@@ -1,6 +1,6 @@
 [
   {
-    "description": "Advance to Go (Collect 200)",
+    "description": "Advance to @0 (Collect $200)",
     "type": "advance",
     "data": 0
   },
@@ -10,72 +10,72 @@
     "data": 0
   },
   {
-    "description": "Go directly to Jail – do not pass Go, do not collect 200",
+    "description": "Go directly to Jail – do not pass @0, do not collect $200",
     "type": "jail",
     "data": 0
   },
   {
-    "description": "Bank error in your favor – Collect 200",
+    "description": "Bank error in your favor – Collect $200",
     "type": "earn",
     "data": 200
   },
   {
-    "description": "From sale of stock you get 50",
+    "description": "From sale of stock you get $50",
     "type": "earn",
     "data": 50
   },
   {
-    "description": "Holiday fund matures – Receive 100",
+    "description": "Holiday fund matures – Receive $100",
     "type": "earn",
     "data": 100
   },
   {
-    "description": "Income tax refund – Collect 20",
+    "description": "Income tax refund – Collect $20",
     "type": "earn",
     "data": 20
   },
   {
-    "description": "Life insurance matures – collect 100",
+    "description": "Life insurance matures – collect $100",
     "type": "earn",
     "data": 100
   },
   {
-    "description": "Receive 25 consultancy fee",
+    "description": "Receive $25 consultancy fee",
     "type": "earn",
     "data": 25
   },
   {
-    "description": "You have won second prize in a beauty contest – collect 10",
+    "description": "You have won second prize in a beauty contest – collect $10",
     "type": "earn",
     "data": 10
   },
   {
-    "description": "You inherit 100",
+    "description": "You inherit $100",
     "type": "earn",
     "data": 100
   },
   {
-    "description": "It is your birthday. Collect 10 from each player",
+    "description": "It is your birthday. Collect $10 from each player",
     "type": "earn-each-player",
     "data": 10
   },
   {
-    "description": "Pay hospital fees of 100",
+    "description": "Pay hospital fees of $100",
     "type": "spend",
     "data": 100
   },
   {
-    "description": "Pay school fees of 100",
+    "description": "Pay school fees of $100",
+    "type": "spend",
+    "data": 100
+  },
+  {
+    "description": "Doctors fee – Pay $50",
     "type": "spend",
     "data": 50
   },
   {
-    "description": "Doctors fee – Pay 50",
-    "type": "spend",
-    "data": 50
-  },
-  {
-    "description": "You are assessed for street repairs – Pay 40 per house and 115 per hotel you own",
+    "description": "You are assessed for street repairs – Pay $40 per house and $115 per hotel you own",
     "type": "repairs",
     "data": [
       40,

@@ -1,16 +1,16 @@
 [
   {
-    "description": "Advance to Go (Collect 200)",
+    "description": "Advance to @0 (Collect $200)",
     "type": "advance",
     "data": 0
   },
   {
-    "description": "Advance to @24. If you pass Go, collect 200",
+    "description": "Advance to @24. If you pass @0, collect $200",
     "type": "advance",
     "data": 24
   },
   {
-    "description": "Advance to @11. If you pass Go, collect 200",
+    "description": "Advance to @11. If you pass @0, collect $200",
     "type": "advance",
     "data": 11
   },
@@ -20,7 +20,7 @@
     "data": 39
   },
   {
-    "description": "Take a ride on the @5. If you pass Go, collect 200",
+    "description": "Take a ride on the @5. If you pass @0, collect $200",
     "type": "advance",
     "data": 5
   },
@@ -50,12 +50,12 @@
     "data": 0
   },
   {
-    "description": "Go directly to Jail – do not pass Go, do not collect 200",
+    "description": "Go directly to Jail – do not pass @0, do not collect $200",
     "type": "jail",
     "data": 0
   },
   {
-    "description": "Make general repairs on all your property – for each house pay 25 – for each hotel 100",
+    "description": "Make general repairs on all your property – for each house pay $25 – for each hotel $100",
     "type": "repairs",
     "data": [
       25,
@@ -63,22 +63,22 @@
     ]
   },
   {
-    "description": "Speeding fine 15",
+    "description": "Speeding fine $15",
     "type": "spend",
     "data": 15
   },
   {
-    "description": "You have been elected chairman of the board – pay each player 50",
+    "description": "You have been elected chairman of the board – pay each player $50",
     "type": "spend-each-player",
     "data": 50
   },
   {
-    "description": "Your building loan matures – collect 150",
+    "description": "Your building loan matures – collect $150",
     "type": "earn",
     "data": 150
   },
   {
-    "description": "Bank pays you dividend of 50",
+    "description": "Bank pays you dividend of $50",
     "type": "earn",
     "data": 50
   }

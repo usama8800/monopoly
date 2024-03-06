@@ -1,0 +1,7 @@
+bail: true
+import: 'tsx'
+spec:
+  - 'src/test/base.ts'
+watch: false
+watch-files:
+  - 'src/**/*.*'
