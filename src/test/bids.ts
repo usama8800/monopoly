@@ -1,15 +1,15 @@
+import { AIPlayer } from '../ai_player';
 import { Monopoly } from '../monopoly';
-import { Player } from '../player';
 
 export const bids = () => describe('Bids', () => {
   let game: Monopoly;
-  let p1: Player;
-  let p2: Player;
+  let p1: AIPlayer;
+  let p2: AIPlayer;
 
   beforeEach(() => {
     game = new Monopoly();
-    p1 = new Player();
-    p2 = new Player();
+    p1 = new AIPlayer();
+    p2 = new AIPlayer();
     game.addPlayer(p1);
     game.addPlayer(p2);
   });

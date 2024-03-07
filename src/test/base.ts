@@ -1,17 +1,17 @@
 import { expect } from 'chai';
+import { AIPlayer } from '../ai_player';
 import { ConsoleMonopoly } from '../console_monopoly';
 import { Monopoly } from '../monopoly';
-import { Player } from '../player';
 
 describe('Base', function () {
   let game: Monopoly;
-  let p1: Player;
-  let p2: Player;
+  let p1: AIPlayer;
+  let p2: AIPlayer;
 
   beforeEach(() => {
     game = new Monopoly();
-    p1 = new Player();
-    p2 = new Player();
+    p1 = new AIPlayer();
+    p2 = new AIPlayer();
     game.addPlayer(p1);
     game.addPlayer(p2);
   });
@@ -33,7 +33,7 @@ describe('Base', function () {
   // bids();
 
   it('Spend each player', () => {
-    const p3 = new Player();
+    const p3 = new AIPlayer();
     game.addPlayer(p3);
     game.chance = [{
       description: 'You have been elected chairman of the board – pay each player 50',
@@ -47,7 +47,7 @@ describe('Base', function () {
     game.turn(3, 1);
     expect(p1.isLost).to.be.true;
     expect(p1.money).to.equal(0);
-    const auction = game.lastActions.find(a => a.action === 'Auction') as any;
+    const auction = game.actions.find(a => a.action === 'Auction') as any;
     expect(auction).to.exist;
     const winner = auction.winner;
     expect(p2.money).to.equal(1545 - (winner === p2.index ? auction.bids[winner] : 0));

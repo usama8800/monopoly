@@ -1,23 +1,24 @@
 import chalk from 'chalk';
-import { Action, Monopoly } from './monopoly';
-import { padCenter, padEnd, padStart } from './utils';
+import { Monopoly } from './monopoly';
+import { Action, OwnableBoardItem, padCenter, padEnd, padStart } from './utils';
 
 export class ConsoleMonopoly extends Monopoly {
 
   playerColors = ['red', 'green', 'blue', 'yellow', 'magenta', 'cyan', 'white'];
 
+  pushActions(...actions: Action[]) {
+    super.pushActions(...actions);
+    console.log(this.actionsToString(actions));
+  }
+
   actionsToString(actions?: Action[]): string {
     let ret = '';
-    if (!actions) actions = this.lastActions;
+    if (!actions) actions = this.actions;
     while (actions.length) {
       const action = actions.shift()!;
       const nextAction = actions[0];
       if (action.action === 'Land') {
         ret += `${this.localizePlayer(action.who)} (${this.localizeMoney(action.money)}) lands on ${this.localizeItem(this.board[action.where])} ${this.localizePlayer(action.who, { name: false, position: true, color: false })}`;
-        // if (nextAction?.action === 'Rent') {
-        //   ret += ` Rent ${this.localizeMoney(nextAction.amount)} to ${this.localizePlayer(nextAction.to)}`;
-        //   i++;
-        // }
         ret += '\n';
       } else if (action.action === 'Rent') {
         ret += `${this.localizePlayer(action.to)} owns ${this.localizeItem(this.board[action.where])}. Charges rent ${this.localizeMoney(action.amount)}\n`;
@@ -35,8 +36,9 @@ export class ConsoleMonopoly extends Monopoly {
         ret += `${this.localizePlayer(action.who)} earns ${this.localizeMoney(action.amount)}\n`;
       } else if (action.action === 'Jail') {
         ret += `${this.localizePlayer(action.who)} goes to jail\n`;
-      } else if (action.action === 'Auction') {
-        ret += `Auction starting for ${this.localizeItem(this.board[action.for])}\n`;
+      } else if (action.action === 'Auction Start') {
+        ret += `Auction starting for ${this.localizeItem(this.board[action.for])} (${this.localizeMoney((this.board[action.for] as OwnableBoardItem).cost)})\n`;
+      } else if (action.action === 'Auction End') {
         if (action.winner === -1) ret += 'No one makes a bid';
         else {
           ret += chalk.underline(padCenter('Player', 13) + '|' + padCenter('Bid', 9)) + '\n';
@@ -63,6 +65,8 @@ export class ConsoleMonopoly extends Monopoly {
         ret += `${this.localizePlayer(action.from)} gives ${sp} to ${this.localizePlayer(action.to)}\n`;
       } else if (action.action === 'Trade' && action.what === 'Tile') {
         ret += `${this.localizePlayer(action.from)} gives ${this.localizeItem(this.board[action.which])} to ${this.localizePlayer(action.to)}\n`;
+      } else if (action.action === 'Trade Declined') {
+        ret += `${this.localizePlayer(action.declinedBy)} declined trade from ${this.localizePlayer(action.tradeFrom)}`;
       } else if (action.action === 'Draw card') {
         ret += `${this.localizePlayer(action.who)} draws card: ${this.localizeItem(action.card)}\n`;
       } else if (action.action === 'Roll') {
@@ -89,7 +93,7 @@ export class ConsoleMonopoly extends Monopoly {
         // });
       }
     }
-    return ret;
+    return ret.slice(0, -1);
   }
 
   localizeMoney(amount: number) {

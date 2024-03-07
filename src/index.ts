@@ -1,16 +1,17 @@
 import { select } from '@inquirer/prompts';
+import { AIPlayer } from './ai_player';
 import { ConsoleMonopoly } from './console_monopoly';
-import { Player } from './player';
+import { ConsolePlayer } from './console_player';
 
-const seed = 1;
+const seed = 7;
 const auto = {
-  rounds: 51,
-  turns: 2,
+  rounds: 0,
+  turns: 0,
 };
 async function main() {
   const game = new ConsoleMonopoly({ seed });
-  game.addPlayer(new Player({ seed }));
-  game.addPlayer(new Player({ seed }));
+  game.addPlayer(new ConsolePlayer({ seed }));
+  game.addPlayer(new AIPlayer({ seed }));
   // game.addPlayer(new Player({ seed }));
 
   while (true) {
@@ -58,8 +59,9 @@ async function main() {
     }
     if (!yes) break;
 
-    game.turn();
-    console.log(game.actionsToString(), '\n');
+    await game.turn();
+    console.log();
+    // if (game.players[game.turnOfPlayer].type === 'console') console.log(game.printBoard(), '\n');
     console.log(game.printPlayers(), '\n');
   }
 }
