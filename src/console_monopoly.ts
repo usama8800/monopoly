@@ -5,15 +5,24 @@ import { Action, OwnableBoardItem, padCenter, padEnd, padStart } from './utils';
 export class ConsoleMonopoly extends Monopoly {
 
   playerColors = ['red', 'green', 'blue', 'yellow', 'magenta', 'cyan', 'white'];
+  autoPrint: boolean;
+
+  constructor(config?: {
+    edition?: 'uk' | 'us';
+    seed?: number;
+  }, autoPrint?: boolean) {
+    super(config);
+    this.autoPrint = autoPrint ?? true;
+  }
 
   pushActions(...actions: Action[]) {
     super.pushActions(...actions);
-    console.log(this.actionsToString(actions));
+    if (this.autoPrint) console.log(this.actionsToString(actions));
   }
 
   actionsToString(actions?: Action[]): string {
     let ret = '';
-    if (!actions) actions = this.actions;
+    if (!actions) actions = this.allTurns[this.allTurns.length - 1];
     while (actions.length) {
       const action = actions.shift()!;
       const nextAction = actions[0];
@@ -33,7 +42,7 @@ export class ConsoleMonopoly extends Monopoly {
         if (action.toMoney) ret += ' (' + this.localizeMoney(action.toMoney) + ')';
         ret += '\n';
       } else if (action.action === 'Earn') {
-        ret += `${this.localizePlayer(action.who)} earns ${this.localizeMoney(action.amount)}\n`;
+        ret += `${this.localizePlayer(action.who)} (${this.localizeMoney(action.money)}) earns ${this.localizeMoney(action.amount)}\n`;
       } else if (action.action === 'Jail') {
         ret += `${this.localizePlayer(action.who)} goes to jail\n`;
       } else if (action.action === 'Auction Start') {
@@ -50,9 +59,7 @@ export class ConsoleMonopoly extends Monopoly {
       } else if (action.action === 'Bankrupt') {
         ret += `${this.localizePlayer(action.who)} is bankrupt\n`;
       } else if (action.action === 'Build') {
-        let sp = 'a house';
-        if (action.number > 1) sp = action.number + ' houses';
-        ret += `${this.localizePlayer(action.who)} builds ${sp} on ${this.localizeItem(this.board[action.where])}\n`;
+        ret += `${this.localizePlayer(action.who)} builds a house on ${this.localizeItem(this.board[action.where])}\n`;
       } else if (action.action === 'Demolish') {
         ret += `${this.localizePlayer(action.who)} (${this.localizeMoney(action.money)}) demolishes a house on ${this.localizeItem(this.board[action.where])} for ${this.localizeMoney(action.amount)}\n`;
       } else if (action.action === 'Mortgage') {
@@ -144,7 +151,7 @@ export class ConsoleMonopoly extends Monopoly {
       const player = this.players[i];
       const prevLengthNeeded = (colLength + colGap.length) * (i % playersPerRow);
       let lineOfPlayer = 0;
-      const thisPlayerTurn = i === (this.turnOfPlayer - 1 + this.players.length) % this.players.length;
+      const thisPlayerTurn = i === this.prevTurnOfPlayer;
       if (!player.isLost) {
         lines[lineRow + lineOfPlayer] = padEnd(lines[lineRow + lineOfPlayer++] ?? '', prevLengthNeeded) + colGap + padEnd(this.localizePlayer(player.index, { bold: true, surround: '----', highlight: thisPlayerTurn }), colLength);
         lines[lineRow + lineOfPlayer] = padEnd(lines[lineRow + lineOfPlayer++] ?? '', prevLengthNeeded) + colGap + padEnd(`Money   : ${this.localizeMoney(player.money)}`, colLength);

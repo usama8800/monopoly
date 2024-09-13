@@ -2,10 +2,15 @@ import stringWidth from 'string-width';
 
 const generators = {};
 
-function rand(seed?: number) {
+export function rand(seed?: number) {
   if (!seed) return Math.random();
-  if (!generators[seed]) generators[seed] = splitmix32(seed);
-  return generators[seed]();
+  if (!generators[seed]) generators[seed] = { used: 0, generator: splitmix32(seed) };
+  generators[seed].used++;
+  return generators[seed].generator();
+}
+
+export function randsUsed() {
+  return Object.entries(generators).map(([seed, val]) => ({ seed: +seed, used: (val as { used: number }).used }));
 }
 
 export function rollDice(seed?: number): number {
@@ -154,6 +159,7 @@ export type Action = {
   where: number;
 } | {
   action: 'Rent';
+  who: number;
   where: number;
   amount: number;
   to: number;
@@ -192,7 +198,6 @@ export type Action = {
   action: 'Build';
   who: number;
   where: number;
-  number: number;
 } | {
   action: 'Demolish';
   who: number;

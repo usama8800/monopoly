@@ -1,8 +1,8 @@
 import chalk from 'chalk';
-import { readJsonSync } from 'fs-extra';
+import { exists, readJsonSync, writeJSONSync } from 'fs-extra';
 import { join } from 'path';
 import { Player } from './player';
-import { Action, Board, BoardItem, CCard, JailCheck, OwnableBoardItem, Property, shuffle } from './utils';
+import { Action, Board, BoardItem, CCard, JailCheck, OwnableBoardItem, Property, rand, randsUsed, shuffle } from './utils';
 
 export class Monopoly {
   houses = 32;
@@ -12,6 +12,7 @@ export class Monopoly {
   chance: CCard[];
   communityChest: CCard[] = [];
   turnOfPlayer = 0;
+  prevTurnOfPlayer = 0;
   rounds = 0;
   doubles = 0;
   roll = 0;
@@ -31,6 +32,7 @@ export class Monopoly {
     sellJailCard: false,
     mortageRemovesDoubleRent: false,
   };
+  allTurns: Action[][] = [];
   actions: Action[] = [];
 
   constructor(config?: {
@@ -128,15 +130,23 @@ export class Monopoly {
     return (to - from + this.board.length) % this.board.length;
   }
 
-  async nextPlayer(): Promise<void> {
+  activePlayers() {
+    return this.players.filter(p => !p.isLost);
+  }
+
+  async nextPlayer(lost = false): Promise<void> {
+    if (!lost) this.prevTurnOfPlayer = this.turnOfPlayer;
     await this.players[this.turnOfPlayer].endTurn();
+    this.allTurns.push(this.actions);
+    this.actions = [];
     this.doubles = 0;
     this.turnOfPlayer = this.turnOfPlayer + 1;
     if (this.turnOfPlayer >= this.players.length) {
       this.rounds++;
       this.turnOfPlayer -= this.players.length;
     }
-    if (this.players[this.turnOfPlayer].isLost) this.nextPlayer();
+    if (this.players[this.turnOfPlayer].isLost) await this.nextPlayer(true);
+    if (this.rounds % 10 === 0 && this.turnOfPlayer === 0) this.save();
   }
 
   async turn(dice1?: number, dice2?: number, dice3?: number, dice4?: number, dice5?: number, dice6?: number): Promise<void> {
@@ -207,6 +217,7 @@ export class Monopoly {
       if (card) await this.handleCard(card);
     } else if (tile.type === 'go-to-jail') {
       player.jail();
+      this.pushActions({ action: 'Jail', who: player.index });
     } else if (tile.type === 'tax') {
       await player.spend(tile.cost);
     } else if (tile.type === 'property' || tile.type === 'railroad' || tile.type === 'utility') {
@@ -218,9 +229,9 @@ export class Monopoly {
           this.pushActions({ action: 'Recevie Title', which: tile.index, who: player.index });
         } else await this.auction(tile);
       } else if (tile.owner === player.index) {
-        if (rent) this.pushActions({ action: 'Owns', who: tile.owner, where: tile.index });
-      } else if (rent) {
-        this.pushActions({ action: 'Rent', amount: rent, to: tile.owner, where: tile.index });
+        if (!tile.mortgaged) this.pushActions({ action: 'Owns', who: tile.owner, where: tile.index });
+      } else if (!tile.mortgaged) {
+        this.pushActions({ action: 'Rent', amount: rent, to: tile.owner, where: tile.index, who: player.index });
         await player.spend(rent, this.players[tile.owner]);
       }
     }
@@ -257,6 +268,7 @@ export class Monopoly {
       const amount = +card.data;
       if (isNaN(amount)) return;
       player.earn(amount);
+      this.pushActions({ action: 'Earn', who: player.index, amount, money: player.money });
     } else if (card.type === 'jail') {
       player.jail();
     } else if (card.type === 'spend') {
@@ -302,7 +314,7 @@ export class Monopoly {
     }
   }
 
-  async handleLosing(player: Player, to?: Player) {
+  async handleBankruptcy(player: Player, to?: Player) {
     this.pushActions({ action: 'Bankrupt', who: player.index, to: to?.index });
     for (const tile of this.board) {
       if (tile.type !== 'property' && tile.type !== 'railroad' && tile.type !== 'utility') continue;
@@ -326,25 +338,27 @@ export class Monopoly {
 
   async auction(tile: OwnableBoardItem) {
     const bids: number[] = Array.from({ length: this.players.length }, _ => -1);
+    const folded: boolean[] = Array.from({ length: this.players.length }, _ => false);
     let highestBidder = -1;
     let highestBid = 0;
-    let allFolded = false;
     this.pushActions({ action: 'Auction Start', for: tile.index });
-    while (!allFolded) {
-      allFolded = true;
+    auction: while (folded.includes(false)) {
       for (let i = 0; i < this.players.length; i++) {
-        if (this.players[i].isLost) continue;
-        const bid = await this.players[i].bid(tile, highestBid, highestBidder);
+        if (i === highestBidder) break auction;
+        if (this.players[i].isLost || folded[i]) continue;
+        const bid = await this.players[i].bid(tile, highestBid, highestBidder, bids);
         if (bid > bids[i]) bids[i] = bid;
         if (bid > highestBid) {
-          // actions.push(`#${i} bids $${bid}`);
+          // this.pushActions(`#${i} bids $${bid}`);
           highestBid = bid;
           highestBidder = i;
-          allFolded = false;
+        } else {
+          folded[i] = true;
         }
       }
     }
     if (highestBidder !== -1) {
+      this.pushActions({ action: 'Auction End', for: tile.index, bids, winner: highestBidder });
       const success = await this.players[highestBidder].spend(highestBid);
       if (success) {
         tile.owner = highestBidder;
@@ -352,12 +366,14 @@ export class Monopoly {
         this.pushActions({ action: 'Recevie Title', who: highestBidder, which: tile.index });
       }
     }
-    this.pushActions({ action: 'Auction End', for: tile.index, bids, winner: highestBidder });
   }
 
-  calculateRent(tile: OwnableBoardItem, roll?: number): number {
-    if (tile.owner === -1 || tile.mortgaged) return 0;
-    if (!roll) roll = this.roll;
+  calculateRent(tile: OwnableBoardItem, options?: { player?: number, roll?: number, cost?: boolean }): number {
+    const roll = options?.roll ?? this.roll;
+    const player = options?.player ?? this.turnOfPlayer;
+    const cost = options?.cost ?? false;
+    if ((!cost && tile.owner === -1) || tile.mortgaged || tile.owner === player) return 0;
+    if (tile.owner === -1) return tile.cost;
     if (tile.type === 'property') {
       const set = this.set(tile.set);
       let rent = tile.rent[tile.buildings];
@@ -380,5 +396,58 @@ export class Monopoly {
     if (this.rounds - round > 1) multiplier = this.config.lateUnmortgageMultiplier;
     if (this.rounds - round === 1 && this.turnOfPlayer > turn) multiplier = this.config.lateUnmortgageMultiplier;
     return multiplier / 2;
+  }
+
+  save(filename?: string) {
+    filename = filename ?? 'monopoly.json';
+    writeJSONSync(filename, {
+      // allTurns: this.allTurns,
+      rounds: this.rounds,
+      turnOfPlayer: this.turnOfPlayer,
+      board: this.board,
+      chance: this.chance,
+      communityChest: this.communityChest,
+      players: this.players.map(p => ({
+        index: p.index,
+        isJailed: p.isJailed,
+        isLost: p.isLost,
+        position: p.position,
+        money: p.money,
+        jailCards: p.jailCards,
+        jailRolls: p.jailRolls,
+      })),
+      randsUsed: randsUsed(),
+      actions: this.actions,
+    });
+  }
+
+  load(filename?: string) {
+    filename = filename ?? 'monopoly.json';
+    if (!exists(filename)) return;
+    const data = readJsonSync(filename);
+    this.rounds = data.rounds;
+    this.turnOfPlayer = data.turnOfPlayer;
+    this.board = data.board;
+    this.chance = data.chance;
+    this.communityChest = data.communityChest;
+    this.actions = data.actions;
+    for (const player of data.players) {
+      const thisPlayer = this.players[player.index];
+      thisPlayer.isJailed = player.isJailed;
+      thisPlayer.isLost = player.isLost;
+      thisPlayer.position = player.position;
+      thisPlayer.money = player.money;
+      thisPlayer.jailCards = player.jailCards;
+      thisPlayer.jailRolls = player.jailRolls;
+    }
+    const rands: { seed: number, used: number }[] = data.randsUsed;
+    const currentRandsUsed = randsUsed();
+    for (const { seed, used } of rands) {
+      const usedCurrent = currentRandsUsed.find(r => r.seed === seed)?.used ?? 0;
+      const diff = used - usedCurrent;
+      for (let i = 0; i < diff; i++) {
+        rand(seed);
+      }
+    }
   }
 }

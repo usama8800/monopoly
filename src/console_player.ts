@@ -6,6 +6,7 @@ import { OwnableBoardItem, Property } from './utils';
 export class ConsolePlayer extends Player {
   declare game: ConsoleMonopoly;
   type = 'console';
+  rejectTrades = '';
 
   async wantOutOfJail() {
     const selection = await select({
@@ -21,7 +22,6 @@ export class ConsolePlayer extends Player {
   }
 
   async willBuy(tile: OwnableBoardItem) {
-    if (this.money < tile.cost) return false;
     return await select({
       message: `${this.game.localizePlayer(this.index)}: Do you want to buy ${this.game.localizeItem(tile)} for ${this.game.localizeMoney(tile.cost)}?`,
       choices: [
@@ -31,18 +31,19 @@ export class ConsolePlayer extends Player {
     });
   }
 
-  async bid(tile: OwnableBoardItem, highestBid: number, highestBidder: number) {
-    if (highestBid > this.money) return 0;
+  async bid(tile: OwnableBoardItem, highestBid: number, highestBidder: number, bids: number[]) {
     const ans = await input({
       message: `${this.game.localizePlayer(this.index)}: How much do you want to bid for ${this.game.localizeItem(tile)}? Current highest bid is ${this.game.localizeMoney(highestBid)} by ${this.game.localizePlayer(highestBidder)}: `,
       validate: (val) => {
-        const num = +val;
+        const force = val.endsWith('!');
+        const num = force ? +val.slice(0, -1) : +val;
         if (isNaN(num)) return 'Please enter a number';
-        if (num > this.money) return 'You don\'t have enough money';
+        if (!force && num > this.money) return 'You don\'t have enough money (use ! at the end to force)';
         return true;
       },
     });
-    return +ans;
+
+    return +ans.slice(0, ans.endsWith('!') ? -1 : undefined);
   }
 
   async endTurn() {
@@ -50,10 +51,10 @@ export class ConsolePlayer extends Player {
       const selected = await select({
         message: `${this.game.localizePlayer(this.index)}: What do you want to do?`,
         choices: [
-          { name: 'Build', value: 'build' },
-          { name: 'Demolish', value: 'demolish' },
-          { name: 'Mortgage', value: 'mortgage' },
-          { name: 'Unmortgage', value: 'unmortgage' },
+          ...(this.buildableProperties().length ? [{ name: 'Build', value: 'build' }] : []),
+          ...(this.properties().some(p => p.buildings) ? [{ name: 'Demolish', value: 'demolish' }] : []),
+          ...(this.titles().some(p => !p.mortgaged) ? [{ name: 'Mortgage', value: 'mortgage' }] : []),
+          ...(this.titles().some(p => p.mortgaged) ? [{ name: 'Unmortgage', value: 'unmortgage' }] : []),
           { name: 'Trade', value: 'trade' },
           { name: 'End turn', value: 'end' },
         ],
@@ -67,25 +68,34 @@ export class ConsolePlayer extends Player {
       }
       if (selected === 'end') break;
     }
+    this.rejectTrades = '';
     return;
   }
 
   async receiveTradeOffer(giving: TradeItem[], receiving: TradeItem[], from: Player) {
+    if (this.rejectTrades === 'all') return false;
+    if (this.rejectTrades === 'player-' + from.index) return false;
     console.log(`${this.game.localizePlayer(this.index)}: ${this.game.localizePlayer(from.index)} offers you the following trade:`);
     this.printTrade(giving, receiving);
-    return await select({
+    const ans = await select({
       message: 'Do you accept the trade?',
       choices: [
-        { name: 'Yes', value: true },
-        { name: 'No', value: false },
+        { name: 'Yes', value: 'yes' },
+        { name: 'No (All from this player)', value: 'no-player' },
+        { name: 'No (All from everyone)', value: 'no-all' },
+        { name: 'No', value: 'no' },
       ],
     });
+    if (ans === 'yes') return true;
+    if (ans === 'no-player') this.rejectTrades = 'player-' + from.index;
+    if (ans === 'no-all') this.rejectTrades = 'all';
+    return false;
   }
 
   async makeMoney(amount: number) {
-    console.log(`${this.game.localizePlayer(this.index)}: You need to make ${this.game.localizeMoney(amount)}`);
     let made = 0;
     while (made < amount) {
+      console.log(`${this.game.localizePlayer(this.index)}: You need to make ${this.game.localizeMoney(amount - made)}`);
       const selected = await select({
         message: `${this.game.localizePlayer(this.index)}: What would you like to do?`,
         choices: [
@@ -113,15 +123,13 @@ export class ConsolePlayer extends Player {
     const selected = await select({
       message: `${this.game.localizePlayer(this.index)}: Where would you like to build?`,
       choices: [
-        ...this.properties()
-          .filter(p => this.game.set(p.set).some(s => s.owner !== this.index))
-          .map(p => ({ name: `${this.game.localizeItem(p)} (Building cost ${this.game.localizeMoney(p.buildingCost)})`, value: p }))
+        ...this.buildableProperties().map(p => ({ name: `${this.game.localizeItem(p)} (Building cost ${this.game.localizeMoney(p.buildingCost)})`, value: p }))
         ,
         { name: 'Cancel', value: undefined },
       ]
     });
     if (!selected) return false;
-    if (await this.build(selected, 1)) return selected;
+    if (await this.build(selected)) return selected;
     return false;
   }
 
@@ -129,8 +137,7 @@ export class ConsolePlayer extends Player {
     const selected = await select({
       message: `${this.game.localizePlayer(this.index)}: Where would you like to demolish from?`,
       choices: [
-        ...this.properties()
-          .filter(p => this.game.set(p.set).some(s => s.owner !== this.index))
+        ...this.demolishableProperties()
           .map(p => ({ name: `${this.game.localizeItem(p)} (Building cost ${this.game.localizeMoney(p.buildingCost)})`, value: p }))
         ,
         { name: 'Cancel', value: undefined },
@@ -142,10 +149,11 @@ export class ConsolePlayer extends Player {
   }
 
   async askMortgage(): Promise<false | OwnableBoardItem> {
+    const builtSets = this.sets().filter(s => s.buildings).map(s => s.set);
     const title = await select({
       message: `${this.game.localizePlayer(this.index)}: Which property would you like to mortgage?`,
       choices: [
-        ...this.titles().filter(t => !t.mortgaged).map(t => ({
+        ...this.titles().filter(t => !t.mortgaged && (t.type !== 'property' || !builtSets.includes(t.set))).map(t => ({
           name: `${this.game.localizeItem(t)} - ${this.game.localizeMoney(t.cost * this.game.config.mortgageMultiplier)}`,
           value: t
         })),
@@ -162,7 +170,7 @@ export class ConsolePlayer extends Player {
       message: `${this.game.localizePlayer(this.index)}: Which property would you like to unmortgage?`,
       choices: [
         ...this.titles().filter(t => t.mortgaged).map(t => ({
-          name: `${this.game.localizeItem(t)} - ${this.game.localizeMoney(t.cost * this.game.config.mortgageMultiplier)}`,
+          name: `${this.game.localizeItem(t)} (${t.cost}) - ${this.game.localizeMoney(t.cost * this.game.unmortgageMultiplier(t))}`,
           value: t
         })),
         { name: 'Cancel', value: undefined },
@@ -274,7 +282,7 @@ export class ConsolePlayer extends Player {
         const title = await select({
           message: `${this.game.localizePlayer(this.index)}: Which title would you like to receive?`,
           choices: [
-            ...who.titles().map(t => ({ name: this.game.localizeItem(t), value: t })),
+            ...this.game.players[who].titles().map(t => ({ name: this.game.localizeItem(t), value: t })),
             { name: 'Cancel', value: undefined },
           ],
         });
@@ -312,16 +320,16 @@ export class ConsolePlayer extends Player {
     for (let i = 0; i < giving.length; i++) {
       const item = giving[i];
       if (item.jailCards) console.log(`${i + 1}. ${item.jailCards} Get out of Jail card${item.jailCards > 1 ? 's' : ''}`);
-      else if (item.money) console.log(`${i + 1}. ${this.game.localizeMoney(item.money)}`);
-      else if (item.tile) console.log(`${i + 1}. ${this.game.localizeItem(item.tile)}`);
+      if (item.money) console.log(`${i + 1}. ${this.game.localizeMoney(item.money)}`);
+      if (item.tile) console.log(`${i + 1}. ${this.game.localizeItem(item.tile)}`);
     }
     console.log('Receiving:');
     if (receiving.length === 0) console.log('- Nothing');
     for (let i = 0; i < receiving.length; i++) {
       const item = receiving[i];
       if (item.jailCards) console.log(`${i + 1}. ${item.jailCards} Get out of Jail card${item.jailCards > 1 ? 's' : ''}`);
-      else if (item.money) console.log(`${i + 1}. ${this.game.localizeMoney(item.money)}`);
-      else if (item.tile) console.log(`${i + 1}. ${this.game.localizeItem(item.tile)}`);
+      if (item.money) console.log(`${i + 1}. ${this.game.localizeMoney(item.money)}`);
+      if (item.tile) console.log(`${i + 1}. ${this.game.localizeItem(item.tile)}`);
     }
   }
 }

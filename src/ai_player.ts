@@ -29,6 +29,7 @@ export class AIPlayer extends Player {
       MakeMoney.MORTGAGE | MakeMoney.SET_PROPERTY,
       MakeMoney.SELL | MakeMoney.SET_PROPERTY,
     ],
+    risk: 5,
     spite: false,
   };
 
@@ -37,69 +38,81 @@ export class AIPlayer extends Player {
     // Always use only card
     // Use card only when streets mostly clear
     // Never
+    if (this.usableMoney(true, false) < 50) return 'none';
     if (this.jailCards) return 'card';
-    if (this.usableMoney(true) > 50) return 'money';
-    return 'none';
+    return 'money';
   }
 
   async willBuy(tile: OwnableBoardItem) {
     const maxMoneyOthers = max(this.game.players.map(p => p.index === this.index ? 0 : p.money))!;
-    if (maxMoneyOthers < tile.cost) return false;
+    if (maxMoneyOthers < tile.cost * 0.8) return false;
     if (tile.type === 'property') {
       const set = this.game.set(tile.set);
-      const almostSet = set.filter(t => t.owner !== this.index).length === 1;
-      // Check if enough money
-      if (almostSet) return true;
+      const owners = set.reduce((acc, curr) => {
+        acc[curr.owner] = (acc[curr.owner] ?? 0) + 1;
+        return acc;
+      }, [] as number[]);
+      const maxOwned = max(owners)!;
+      let almostSetOf = -1;
+      if (set.length - maxOwned === 1) almostSetOf = owners.indexOf(maxOwned);
+      // console.log(this.maxMoney());
+      if (this.maxMoney() / 2 < tile.cost * 1.2) return false;
+      if (almostSetOf !== -1) return true;
     }
     return this.money > tile.cost;
   }
 
-  async bid(tile: OwnableBoardItem, highestBid: number, highestBidder: number) {
-    if (this.money <= highestBid) return 0;
+  async bid(tile: OwnableBoardItem, highestBid: number, highestBidder: number, _bids: number[]) {
     if (highestBidder === this.index) return highestBid;
 
     let bid = 0;
-    let maxSpending = tile.cost / (tile.mortgaged ? 2 * this.game.config.lateUnmortgageMultiplier : 1) * 1.2;
+
+    // Set max spending
+    let maxSpending = tile.cost * (tile.mortgaged ?
+      this.game.config.unmortgageMultiplier * this.game.config.lateUnmortgageMultiplier : 1);
+    if (this.money >= maxSpending * 1.3) maxSpending *= 1.3;
+    if (maxSpending > this.money) maxSpending = this.money;
     if (tile.type === 'property') {
       const set = this.game.set(tile.set);
+      // if completing my set
       if (set.filter(t => t.owner !== this.index).length === 1) maxSpending = tile.cost * 2;
+      // if completing highestBidder set
       if (set.filter(t => t.owner !== highestBidder).length === 1) maxSpending = tile.cost * 1.6;
     }
-    if (highestBid < maxSpending) bid = highestBid + this.game.config.minBidIncrease;
-    // if (highestBid < tile.cost / 2) bid = highestBid + 1;
-    // else if (highestBid < tile.cost) bid = highestBid + 1;
-    // else if (highestBidder === this.game.turnOfPlayer && highestBid < tile.cost * 1.2) return highestBid + 1;
+    const maxMoney = this.maxMoney();
+    if (maxMoney / 2 < maxSpending) maxSpending = maxMoney / 2;
 
-    // const maxMoneyOthers = max(this.game.players.map(p => p.index === this.index ? 0 : p.money))!;
-    // if (bid > maxMoneyOthers) bid = maxMoneyOthers + 1;
-    if (bid > this.money) bid = this.money;
+    if (highestBid < maxSpending) bid = highestBid + this.game.config.minBidIncrease;
     if (bid < highestBid + this.game.config.minBidIncrease) bid = 0;
     return bid;
   }
 
   async endTurn() {
+    if (this.isLost) return;
+    // When no one has set, trade
+    // When someone has set and you don't, trade
+    // When everyone has set, trade
     const wantTrade: OwnableBoardItem[] = this.wantInTrade();
-    // console.log('wantTrade', wantTrade.map(t => this.game.localizeItem(t, false)));
-    for (const want of wantTrade) {
-      const [to, giving, receiving] = this.generateTradeOffer(want);
-      if (to === -1) continue;
-      const accepted = await this.sendTradeOffer(giving, receiving, this.game.players[to]);
+    const whoHasSets = this.game.players.filter(p => p.sets().length > 0);
+    const iHaveSet = whoHasSets.some(p => p.index === this.index);
+    const othersHaveAndIDont = !iHaveSet && whoHasSets.length > 0;
+    const mySets = this.sets();
+    const mySetsBuiltOn = sum(mySets.map(p => p.buildings)) / mySets.length;
+    if (wantTrade.length && (mySets.length === 0 || mySetsBuiltOn > 3)
+      && (whoHasSets.length === 0 || othersHaveAndIDont || whoHasSets.length === this.game.activePlayers().length)) {
+      for (const want of wantTrade) {
+        await this.tryTradeProperty(want as Property);
+      }
     }
 
     const building = this.wantToBuild();
-    outer: for (const tileIndex in building) {
+    for (const tileIndex of building) {
       const tile = this.game.board[tileIndex] as Property;
       const set = this.game.set(tile.set);
       for (const t of set) {
-        if (t.mortgaged) {
-          const cost = t.cost * this.game.unmortgageMultiplier(t);
-          const success = await this.spend(cost);
-          if (!success) break outer;
-          t.mortgaged = false;
-          this.game.pushActions({ action: 'Unmortgage', who: this.index, where: t.index });
-        }
+        if (t.mortgaged) await this.unmortgage(t);
       }
-      await this.build(tile, building[tileIndex]);
+      await this.build(tile);
     }
 
     const wantUnmortgage = this.wantToUnmortgage();
@@ -111,27 +124,89 @@ export class AIPlayer extends Player {
       tile.mortgaged = false;
       this.game.pushActions({ action: 'Unmortgage', who: this.index, where: tile.index });
     }
+
+    let usableMoney = this.usableMoney(true);
+    if (usableMoney > 0 && mySetsBuiltOn >= 4) {
+      const properties = this.setsGrouped(true);
+      outer: for (const setNum in properties) {
+        const mySet = properties[setNum];
+        const totalSet = this.game.set(+setNum);
+        if (totalSet.length - mySet.length < 2) continue;
+        for (const property of totalSet) {
+          if (property.owner === this.index || property.owner === -1) continue;
+          const accepted = await this.tryTradeProperty(property);
+          if (accepted) {
+            usableMoney = this.usableMoney(true);
+            if (usableMoney < 0) break outer;
+          }
+        }
+      }
+    }
   }
 
   async receiveTradeOffer(giving: TradeItem[], receiving: TradeItem[], from: Player) {
     // Check usable money
-    const myProperties = groupBy(this.properties(), 'set');
-    const givingProperties = groupBy(giving.filter(t => t.tile && t.tile.type === 'property') as Property[], 'set');
-    const givingRailroads = giving.filter(t => t.tile && t.tile.type === 'railroad') as Railroad[];
-    const givingUtilities = giving.filter(t => t.tile && t.tile.type === 'utility') as Utility[];
-    const givingMoney = sum(giving.filter(t => t.money));
-    const receivingProperties = groupBy(receiving.filter(t => t.tile && t.tile.type === 'property') as Property[], 'set');
-    const receivingRailroads = receiving.filter(t => t.tile && t.tile.type === 'railroad') as Railroad[];
-    const receivingUtilities = receiving.filter(t => t.tile && t.tile.type === 'utility') as Utility[];
-    const receivingMoney = sum(receiving.filter(t => t.money));
+    const givingTitles = giving.filter(t => t.tile).map(t => t.tile!);
+    // const givingProperties = groupBy(giving.filter(t => t.tile && t.tile.type === 'property') as Property[], 'set');
+    // const givingRailroads = giving.filter(t => t.tile && t.tile.type === 'railroad') as Railroad[];
+    // const givingUtilities = giving.filter(t => t.tile && t.tile.type === 'utility') as Utility[];
+    const givingMoney = sum(giving.filter(t => t.money).map(t => t.money));
+    if (givingMoney > this.money) return false;
+    const givingJails = sum(giving.filter(t => t.jailCards).map(t => t.jailCards));
+    const receivingTitles = receiving.filter(t => t.tile).map(t => t.tile!);
+    const receivingProperties = groupBy(receiving.filter(t => t.tile && t.tile.type === 'property').map(t => t.tile as Property), 'set');
+    // const receivingRailroads = receiving.filter(t => t.tile && t.tile.type === 'railroad') as Railroad[];
+    // const receivingUtilities = receiving.filter(t => t.tile && t.tile.type === 'utility') as Utility[];
+    const receivingMoney = sum(receiving.filter(t => t.money).map(t => t.money));
+    const receivingJails = sum(giving.filter(t => t.jailCards).map(t => t.jailCards));
+    const mySets = this.setsGrouped();
+    const giverSets = from.setsGrouped();
+    let makesMySet = false;
+    for (const set in receivingProperties) {
+      const totalSet = this.game.set(+set);
+      const incomingSet = receivingProperties[set];
+      const mySet = totalSet.filter(t => t.owner === this.index);
+      if (mySet.length + incomingSet.length === totalSet.length) makesMySet = true;
+    }
 
-    const totalGivingValue = this.valueItems(giving);
-    const totalReceivingValue = this.valueItems(receiving);
-    const allPlayersValue = this.game.players.map(p => this.valuePlayer(p));
+    // When incoming from someone with sets and trade make me no sets and I have no sets and I'm giving a title, decline
+    // console.log(1, makesMySet);
+    if (Object.keys(mySets).length === 0 && Object.keys(giverSets).length > 0 && !makesMySet && givingTitles.length) return false;
+
+    // When no one has set except you, decline
+    const othersHaveSets = this.game.players.some(p => p.index !== this.index && p.sets().length > 0);
+    // console.log(2);
+    if (!othersHaveSets && Object.keys(mySets).length) return false;
+
+    // const allPlayersValue = this.game.players.map(p => this.valuePlayer(p));
     // const sortedOtherPlayersValue = otherPlayersValue.map((v, i) => [v, i]).sort((a, b) => a[0] - b[0]);
-    const playerValueDiff = allPlayersValue[this.index] - allPlayersValue[from.index];
-    const tradeDiff = totalReceivingValue - totalGivingValue;
-    return tradeDiff > 0;
+    // const playerValueDiff = allPlayersValue[this.index] - allPlayersValue[from.index];
+    // const totalGivingValue = this.valueItems(giving);
+    // const totalReceivingValue = this.valueItems(receiving);
+    // const tradeDiff = totalReceivingValue - totalGivingValue;
+    // return tradeDiff > 0;
+    const myPrevValue = this.valuePlayer(this);
+    const myLaterValue = this.valueItems([
+      ...this.titles().filter(t => !givingTitles.find(g => g.index === t.index)).map(t => ({ tile: t })),
+      ...receivingTitles.map(t => ({ tile: t })),
+      { money: this.money - givingMoney + receivingMoney },
+      { jailCards: this.jailCards - givingJails + receivingJails },
+    ], this);
+    const myValueDiff = myLaterValue - myPrevValue;
+    // console.log(3, myPrevValue, myLaterValue);
+    if (myValueDiff < 0) return false;
+    const theirPrevValue = this.valuePlayer(from);
+    const theirLaterValue = this.valueItems([
+      ...from.titles().filter(t => !receivingTitles.find(r => r.index === t.index)).map(t => ({ tile: t })),
+      ...givingTitles.map(t => ({ tile: t })),
+      { money: from.money - receivingMoney + givingMoney },
+      { jailCards: from.jailCards - receivingJails + givingJails },
+    ], from);
+    const theirValueDiff = theirLaterValue - theirPrevValue;
+    // console.log(4, theirPrevValue, theirLaterValue);
+    if (myValueDiff < theirValueDiff) return false;
+    // console.log('TRADDEEEEEEEEEEEEEEEEEEEEEEEEEEE');
+    return true;
   }
 
   async makeMoney(amount: number) {
@@ -178,15 +253,14 @@ export class AIPlayer extends Player {
           amount -= tile.cost * this.game.config.mortgageMultiplier;
         } else if (action.sell) {
           const tile = this.game.board[action.sell.index] as OwnableBoardItem;
-          let making = (tile.mortgaged ? tile.cost * this.game.config.mortgageMultiplier : tile.cost) * 1.2;
-          let accepted = await this.sendTradeOfferToEveryone([{ tile }], [{ money: making }]);
-          if (accepted === -1) {
-            making = making / 1.2 * 1.1;
-            accepted = await this.sendTradeOfferToEveryone([{ tile }], [{ money: making }]);
-            if (accepted === -1) {
-              making = making / 1.1;
-              accepted = await this.sendTradeOfferToEveryone([{ tile }], [{ money: making }]);
-            }
+          const making = (tile.mortgaged ? tile.cost * this.game.unmortgageMultiplier(tile) : tile.cost);
+          let factor = 3;
+          let accepted = -1;
+          while (true) {
+            accepted = await this.sendTradeOfferToEveryone([{ tile }], [{ money: making * factor }]);
+            if (accepted === -1) factor -= 0.2;
+            else break;
+            if (factor < 1) break;
           }
           if (accepted === -1) {
             utilities = utilities.filter(u => u.index !== tile!.index);
@@ -381,43 +455,112 @@ export class AIPlayer extends Player {
     return [amount, actions] as [number, MakeMoneyItem[]];
   }
 
-  usableMoney(double = false): number {
-    let neededMoney = 0;
-    for (let i = 1; i <= 6; i++) {
-      for (let j = 1; j <= 6; j++) {
-        const tile = this.game.board[(this.position + i + j) % this.game.board.length];
-        if (tile.type === 'chance') neededMoney += 50;
-        else if (tile.type === 'community-chest') neededMoney += 50;
-        else if (tile.type === 'tax') neededMoney += tile.cost;
-        else if (tile.type === 'utility' && tile.owner !== this.index && tile.owner !== 0)
-          neededMoney += this.game.calculateRent(tile, i + j);
-        else if (tile.type === 'railroad' && tile.owner !== this.index && tile.owner !== 0)
-          neededMoney += this.game.calculateRent(tile, i + j);
-        else if (tile.type === 'property' && tile.owner !== this.index && tile.owner !== 0)
-          neededMoney += this.game.calculateRent(tile, i + j);
-        else if (['utility', 'railroad', 'property'].includes(tile.type))
-          neededMoney += (tile as OwnableBoardItem).cost;
+  async tryTradeProperty(tile: Property) {
+    const totalSet = this.game.set(tile.set);
+    const mySet = totalSet.filter(t => t.owner === this.index);
+    const makesMySet = mySet.length + 1 === totalSet.length;
+    const whoHasSets = this.game.players.filter(p => p.sets().length > 0);
+    const iHaveSet = whoHasSets.some(p => p.index === this.index);
+    const othersHaveAndIDont = !iHaveSet && whoHasSets.length > 0;
+    const toIndex = tile.owner;
+    const to = this.game.players[toIndex];
+    const usableMoney = this.usableMoney();
+    if (makesMySet) {
+      const toWantInTrade = this.wantInTrade(to);
+      const tradables = toWantInTrade.filter(p => p.owner === this.index && (p.type !== 'property' || tile.type !== 'property' || p.set !== tile.set));
+      // console.log(' ', toIndex, tradables.map(t => this.game.localizeItem(t, false)));
+      for (const tradable of tradables) {
+        // If receiving lesser property, ask for money
+        //    If others have set and you don't, go down to ^1.15
+        //                                else, go down to ^1.2
+        // If receiving greater property, give money
+        //    If others have have and you don't, go up to ^1.3
+        //                                 else, go up to ^1.2
+        let diff = tradable.cost - tile.cost;
+        const factors = [1.15, 1.2, 1.25, 1.3];
+        if (diff < 0) { // Receiving greater property
+          diff = -diff;
+          const cutoff = othersHaveAndIDont ? 1.3 : 1.2;
+          for (const factor of factors) {
+            if (factor > cutoff) continue;
+            const giving = Math.round(diff ** factor);
+            if (giving > usableMoney) continue;
+            const accepted = await this.sendTradeOffer([{ money: giving, tile: tradable }], [{ tile }], to);
+            // console.log('  Giving L', giving, this.game.localizeItem(tradable, false), 'to', toIndex, 'for', this.game.localizeItem(tile, false), accepted);
+            if (accepted) return true;
+          }
+        } else { // Receiving lesser property
+          factors.reverse();
+          const cutoff = othersHaveAndIDont ? 1.15 : 1.2;
+          for (const factor of factors) {
+            if (factor < cutoff) continue;
+            const receiving = Math.round(diff ** factor);
+            if (receiving > usableMoney) continue;
+            const accepted = await this.sendTradeOffer([{ tile: tradable }], [{ tile, money: receiving }], to);
+            // console.log('  Giving G', this.game.localizeItem(tradable, false), 'to', toIndex, 'for', receiving, this.game.localizeItem(tile, false), accepted);
+            if (accepted) return true;
+          }
+        }
       }
     }
-    neededMoney = neededMoney / 36;
+    for (const factor of [1, 1.5, 2, 2.5, 3, 3.5]) {
+      const cutoff = othersHaveAndIDont || whoHasSets.length === 0 ? 3.5 : 3;
+      if (factor > cutoff) break;
+      const giving = Math.round(tile.cost * factor);
+      if (giving > usableMoney) continue;
+      const accepted = await this.sendTradeOffer([{ money: giving }], [{ tile }], to);
+      // console.log('  Giving', giving, 'to', toIndex, 'for', this.game.localizeItem(tile, false), accepted);
+      if (accepted) return true;
+    }
+    return false;
+  }
+
+  usableMoney(double = false, countUnowned = true): number {
+    let neededMoney = 0;
+    for (let i = 0; i < this.game.board.length; i++) {
+      const tile = this.game.board[i];
+      if (tile.type === 'chance') neededMoney += 50;
+      else if (tile.type === 'community-chest') neededMoney += 50;
+      else if (tile.type === 'tax') neededMoney += tile.cost;
+      else if (tile.type === 'utility')
+        neededMoney += this.game.calculateRent(tile, { roll: 7, player: this.index, cost: countUnowned });
+      else if (tile.type === 'railroad')
+        neededMoney += this.game.calculateRent(tile, { roll: 7, player: this.index, cost: countUnowned });
+      else if (tile.type === 'property')
+        neededMoney += this.game.calculateRent(tile, { roll: 7, player: this.index, cost: countUnowned });
+    }
+    neededMoney /= this.config.risk;
+    // console.log(neededMoney);
     if (double) neededMoney *= 2;
     return this.money - neededMoney;
   }
 
-  wantInTrade(): OwnableBoardItem[] {
-    const ret: OwnableBoardItem[] = [];
-    const sets = groupBy(this.properties(), 'set');
-
-    for (const set in sets) {
-      const totalSet = this.game.set(+set);
-      const notInMySet = totalSet.filter(t => t.owner !== this.index);
-      if (notInMySet.length === 1 && notInMySet[0].owner !== -1)
-        ret.push(notInMySet[0]);
+  maxMoney() {
+    let ret = this.money;
+    for (const tile of this.titles()) {
+      if (tile.type === 'property') {
+        ret += tile.buildings * tile.buildingCost * this.game.config.demolishMultiplier;
+      }
+      if (!tile.mortgaged) ret += tile.cost * this.game.config.mortgageMultiplier;
     }
     return ret;
   }
 
-  wantToBuild(): { [key: string]: number } {
+  wantInTrade(player?: Player): OwnableBoardItem[] {
+    const ret: OwnableBoardItem[] = [];
+    const p = player ?? this;
+    const sets = groupBy(p.properties(), 'set');
+
+    for (const set in sets) {
+      const totalSet = this.game.set(+set);
+      const notInSet = totalSet.filter(t => t.owner !== p.index);
+      if (notInSet.length === 1 && notInSet[0].owner !== -1)
+        ret.push(notInSet[0]);
+    }
+    return ret;
+  }
+
+  wantToBuild(): number[] {
     let usableMoney = this.usableMoney();
     let wantBuildSet: { [key: string]: number } = {};
     const wantBuildTile: { [key: string]: number } = {};
@@ -447,26 +590,26 @@ export class AIPlayer extends Player {
       const building = Math.min(maxBuildable, maxBuildSpace);
       wantBuildSet[setNumber] = building;
     }
-    const building: { [key: string]: number } = {};
+    const building: number[] = [];
     for (const set in wantBuildSet) {
       const totalSet = this.game.set(+set);
       const tileWants = totalSet
-        .map(t => [t, building[t.index]] as [Property, number])
+        .map(t => [t, building.filter(x => x === t.index).length] as [Property, number])
         .sort((a, b) => a[1] - b[1])
         .map(t => t[0]);
       const buildCost = totalSet[0].buildingCost;
       while (usableMoney > buildCost) {
-        const maxBuildings = max(tileWants.map(t => t.buildings + (building[t.index] ?? 0)))!;
-        const minBuildings = min(tileWants.map(t => t.buildings + (building[t.index] ?? 0)))!;
+        const maxBuildings = max(tileWants.map(t => t.buildings + building.filter(x => x === t.index).length))!;
+        const minBuildings = min(tileWants.map(t => t.buildings + building.filter(x => x === t.index).length))!;
         if (maxBuildings - minBuildings === 0) break;
         const minIndex = tileWants.findIndex(t => t.buildings === minBuildings);
-        building[tileWants[minIndex].index] = 1;
+        building.push(tileWants[minIndex].index);
         usableMoney -= buildCost;
       }
       for (let i = 0; i < tileWants.length && usableMoney > buildCost; i++) {
-        const buildingsOnTile = (building[tileWants[i].index] ?? 0) + tileWants[i].buildings;
+        const buildingsOnTile = tileWants[i].buildings + building.filter(x => x === tileWants[i].index).length;
         if (buildingsOnTile === 5) continue;
-        building[tileWants[i].index] = (building[tileWants[i].index] ?? 0) + 1;
+        building.push(tileWants[i].index);
         usableMoney -= buildCost;
         if (buildingsOnTile + 1 < 5 && i + 1 === tileWants.length) i = -1;
       }
@@ -517,21 +660,16 @@ export class AIPlayer extends Player {
   }
 
   valuePlayer(p: Player): number {
-    const properties = p.properties();
-    const railroads = p.railroads();
-    const utilities = p.utilities();
     const money = p.money;
     const jailCards = p.jailCards;
     return this.valueItems([
-      ...properties.map(t => ({ tile: t })),
-      ...railroads.map(t => ({ tile: t })),
-      ...utilities.map(t => ({ tile: t })),
+      ...p.titles().map(t => ({ tile: t })),
       { money },
       { jailCards },
-    ]);
+    ], p);
   }
 
-  valueItems(items: TradeItem[]): number {
+  valueItems(items: TradeItem[], player: Player): number {
     const tiles = items.filter(t => t.tile).map(t => t.tile!);
     const money = sum(items.filter(t => t.money).map(t => t.money));
     const cards = sum(items.filter(t => t.jailCards).map(t => t.jailCards));
@@ -545,7 +683,7 @@ export class AIPlayer extends Player {
 
     // Utilities
     const allUtilities = this.game.board.filter(tile => tile.type === 'utility') as Utility[];
-    const myUtilities = allUtilities.filter(tile => tile.owner === this.index);
+    const myUtilities = allUtilities.filter(tile => tile.owner === player.index);
     for (const t of utilities) {
       const factor = t.mortgaged ? mortgageFactor : 1;
       if (myUtilities.length < 2) value += t.cost * factor;
@@ -554,7 +692,7 @@ export class AIPlayer extends Player {
 
     // Railroads
     const allRailroads = this.game.board.filter(tile => tile.type === 'railroad') as Railroad[];
-    const myRailroads = allRailroads.filter(tile => tile.owner === this.index);
+    const myRailroads = allRailroads.filter(tile => tile.owner === player.index);
     for (const t of railroads) {
       const factor = t.mortgaged ? mortgageFactor : 1;
       value += t.cost * (2 ** ((myRailroads.length - 1) / 5)) * factor;
@@ -565,31 +703,15 @@ export class AIPlayer extends Player {
     for (const set in sets) {
       const totalSet = this.game.set(+set);
       const incomingSet = sets[set];
-      const mySet = totalSet.filter(t => t.owner === this.index);
       for (const t of incomingSet) {
         const factor = t.mortgaged ? mortgageFactor : 1;
-        if (mySet.length === totalSet.length) value += t.cost * 3 * factor;
-        else if (mySet.length === 1) value += t.cost * factor;
+        if (incomingSet.length === totalSet.length) value += t.cost * 3 * factor;
+        else if (incomingSet.length === 1) value += t.cost * factor;
         else value += t.cost * 1.6 * factor;
         value += t.buildingCost * t.buildings;
       }
     }
     return Math.floor(value);
-  }
-
-  generateTradeOffer(want: OwnableBoardItem): [number, TradeItem[], TradeItem[]] {
-    const toIndex = want.owner;
-    if (toIndex === -1) return [-1, [], []];
-    const to = this.game.players[toIndex];
-    const myProperties = groupBy(this.properties(), 'set');
-    const myRailroads = this.railroads();
-    const myUtilities = this.utilities();
-    const theirProperties = groupBy(to.properties(), 'set');
-    const theirRailroads = to.railroads();
-    const theirUtilities = to.utilities();
-
-
-    return [-1, [], []];
   }
 
 }

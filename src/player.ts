@@ -1,3 +1,4 @@
+import { flatMap, groupBy } from 'lodash';
 import { Monopoly } from './monopoly';
 import { JailCheck, OwnableBoardItem, Property, Railroad, Utility, rollDice } from './utils';
 
@@ -66,6 +67,52 @@ export abstract class Player {
     return this.game.board.filter(t => t.type === 'property' && t.owner === this.index) as Property[];
   }
 
+  setsGrouped(all = false): { [key: string]: Property[] } {
+    let properties = this.properties();
+    if (!all) properties = properties.filter(p => this.game.set(p.set).every(s => s.owner === this.index));
+    return groupBy(properties, 'set');
+  }
+
+  sets(all = false): Property[] {
+    let properties = this.properties();
+    if (!all) properties = properties.filter(p => this.game.set(p.set).every(s => s.owner === this.index));
+    return properties;
+  }
+
+  buildableProperties(): Property[] {
+    const sets = this.setsGrouped();
+    for (const set in sets) {
+      const highest = Math.max(...sets[set].map(p => p.buildings));
+      if (sets[set].some(t => t.mortgaged)) {
+        delete sets[set];
+        continue;
+      }
+      if (sets[set].every(s => s.buildings === highest)) {
+        if (highest === 5) delete sets[set];
+        continue;
+      }
+      sets[set] = sets[set].filter(p => p.buildings < highest);
+    }
+    return flatMap(sets);
+  }
+
+  demolishableProperties(): Property[] {
+    const sets = this.setsGrouped();
+    for (const set in sets) {
+      const lowest = Math.min(...sets[set].map(p => p.buildings));
+      if (sets[set].some(t => t.mortgaged)) {
+        delete sets[set];
+        continue;
+      }
+      if (sets[set].every(s => s.buildings === lowest)) {
+        if (lowest === 0) delete sets[set];
+        continue;
+      }
+      sets[set] = sets[set].filter(p => p.buildings > lowest);
+    }
+    return flatMap(sets);
+  }
+
   railroads(): Railroad[] {
     return this.game.board.filter(t => t.type === 'railroad' && t.owner === this.index) as Railroad[];
   }
@@ -131,47 +178,57 @@ export abstract class Player {
   jail() {
     this.position = 10;
     this.isJailed = true;
-    this.game.pushActions({ action: 'Jail', who: this.index });
   }
 
   passGo() {
     this.earn(this.game.config.goMoney);
   }
 
-  async spend(amount: number, to?: Player): Promise<boolean> {
+  async spend(amount: number, to?: Player, makeMoney = true): Promise<boolean> {
+    amount = Math.round(amount);
     const diff = amount - this.money;
     if (diff <= 0) {
       this.money -= amount;
       if (to) to.earn(amount);
       this.game.pushActions({ action: 'Spend', who: this.index, amount, money: this.money, to: to?.index, toMoney: to?.money });
       return true;
-    } else {
+    } else if (makeMoney) {
       const amountLeft = await this.makeMoney(diff);
-      const success = amountLeft > 0 ? false : await this.spend(amount, to);
+      const success = amountLeft > 0 ? false : await this.spend(amount, to, false);
       if (!success) {
         this.isLost = true;
-        await this.game.handleLosing(this, to);
+        await this.game.handleBankruptcy(this, to);
       }
       return success;
-    }
+    } else return false;
   }
 
   earn(amount: number) {
     this.money += amount;
-    this.game.pushActions({ action: 'Earn', who: this.index, amount, money: this.money });
   }
 
-  async build(tile: Property, number: number) {
-    const cost = tile.buildingCost * number;
+  async build(tile: Property) {
+    if (tile.mortgaged) return false;
+    const set = this.game.set(tile.set);
+    const allSame = set.every(s => s.buildings === tile.buildings);
+    const highestNum = Math.max(...set.map(s => s.buildings));
+    const thisNum = tile.buildings;
+    if (!allSame && thisNum === highestNum) return false;
+    const cost = tile.buildingCost;
     const success = await this.spend(cost);
     if (!success) return false;
-    tile.buildings += number;
-    this.game.pushActions({ action: 'Build', who: this.index, where: tile.index, number });
+    tile.buildings++;
+    this.game.pushActions({ action: 'Build', who: this.index, where: tile.index });
     return true;
   }
 
   demolish(tile: Property) {
     if (tile.buildings === 0) return false;
+    const set = this.game.set(tile.set);
+    const allSame = set.every(s => s.buildings === tile.buildings);
+    const lowestNum = Math.min(...set.map(s => s.buildings));
+    const thisNum = tile.buildings;
+    if (!allSame && thisNum === lowestNum) return false;
     tile.buildings--;
     const making = tile.buildingCost * this.game.config.demolishMultiplier;
     this.money += making;
@@ -206,11 +263,13 @@ export abstract class Player {
           tile.owner = to.index;
           tile.ownershipChanged = [this.game.rounds, this.game.turnOfPlayer];
           this.game.pushActions({ action: 'Trade', what: 'Tile', from: this.index, to: to.index, which: tile.index });
-        } else if (jailCards) {
+        }
+        if (jailCards) {
           to.jailCards += jailCards;
           this.jailCards -= jailCards;
           this.game.pushActions({ action: 'Trade', what: 'Jail Card', number: jailCards, from: this.index, to: to.index });
-        } else if (money) {
+        }
+        if (money) {
           await this.spend(money, to);
         }
       }
@@ -219,11 +278,13 @@ export abstract class Player {
           tile.owner = this.index;
           tile.ownershipChanged = [this.game.rounds, this.game.turnOfPlayer];
           this.game.pushActions({ action: 'Trade', what: 'Tile', from: to.index, to: this.index, which: tile.index });
-        } else if (jailCards) {
+        }
+        if (jailCards) {
           this.jailCards += jailCards;
           to.jailCards -= jailCards;
           this.game.pushActions({ action: 'Trade', what: 'Jail Card', number: jailCards, from: to.index, to: this.index });
-        } else if (money) {
+        }
+        if (money) {
           await to.spend(money, this);
         }
       }
@@ -233,7 +294,7 @@ export abstract class Player {
 
   abstract wantOutOfJail(): Promise<'card' | 'money' | 'none'>;
   abstract willBuy(tile: OwnableBoardItem): Promise<boolean>;
-  abstract bid(tile: OwnableBoardItem, highestBid: number, highestBidder: number): Promise<number>;
+  abstract bid(tile: OwnableBoardItem, highestBid: number, highestBidder: number, bids: number[]): Promise<number>;
   abstract endTurn(): Promise<void>;
   abstract receiveTradeOffer(giving: TradeItem[], receiving: TradeItem[], from: Player): Promise<boolean>;
   abstract makeMoney(amount: number): Promise<number>;
